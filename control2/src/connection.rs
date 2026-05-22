@@ -1,11 +1,73 @@
 use std::time::Duration;
 
-use mavlink::{AsyncMavConnection, MAX_FRAME_SIZE, MavlinkVersion, dialects::common::MavMessage};
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-};
+use mavlink::{AsyncMavConnection, MavlinkVersion, dialects::common::MavMessage};
+use tokio::{sync::mpsc, task::JoinHandle};
 
+type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
+
+// A filter+mapper registered with the router.
+// Boxes the closure so subscribers of different output types can coexist in one Vec.
+type SubscriberFn = Box<dyn Fn(&MavMessage) -> bool + Send + Sync>;
+type ForwardFn = Box<dyn Fn(MavMessage) + Send + Sync>;
+
+struct Subscription {
+    matches: SubscriberFn,
+    forward: ForwardFn,
+}
+
+// -------------------------------------------------------------------
+// MavlinkRouter
+//
+// Call `.subscribe()` before starting the task (i.e. before calling
+// `setup_mavlink_task`). Each subscription returns a typed mpsc::Receiver.
+// The router task fans out every received MavMessage to whichever
+// subscriptions match it, cloning only when necessary.
+// -------------------------------------------------------------------
+pub struct MavlinkRouter {
+    subscriptions: Vec<Subscription>,
+}
+
+impl MavlinkRouter {
+    pub fn new() -> Self {
+        Self {
+            subscriptions: Vec::new(),
+        }
+    }
+
+    /// Register a typed subscription. `extract` is called once per message;
+    /// if it returns `Some(T)` the value is forwarded to the returned Receiver.
+    /// Slow receivers get `try_send` — lagged messages are dropped rather than
+    /// blocking the router.
+    pub fn subscribe<T, F>(&mut self, extract: F) -> mpsc::Receiver<T>
+    where
+        T: Send + 'static,
+        F: Fn(&MavMessage) -> Option<T> + Send + Sync + 'static,
+    {
+        let (tx, rx) = mpsc::channel::<T>(256);
+
+        // We need two separate closures that share `extract`.
+        // Wrap in Arc so both closures can own it.
+        let extract = std::sync::Arc::new(extract);
+        let extract2 = extract.clone();
+
+        self.subscriptions.push(Subscription {
+            matches: Box::new(move |msg| extract(msg).is_some()),
+            forward: Box::new(move |msg| {
+                if let Some(val) = extract2(&msg) {
+                    if tx.try_send(val).is_err() {
+                        eprintln!("MavlinkRouter: subscriber channel full, dropping message");
+                    }
+                }
+            }),
+        });
+
+        rx
+    }
+}
+
+// -------------------------------------------------------------------
+// MavlinkHandle — send arbitrary MavMessages back to the drone
+// -------------------------------------------------------------------
 #[derive(Clone)]
 pub struct MavlinkHandle {
     tx: mpsc::Sender<MavMessage>,
@@ -17,6 +79,9 @@ impl MavlinkHandle {
     }
 }
 
+// -------------------------------------------------------------------
+// Connect
+// -------------------------------------------------------------------
 pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
     let mut mavconn = mavlink::connect_async::<MavMessage>(mavlink_conn_str)
         .await
@@ -28,64 +93,89 @@ pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
     mavconn
 }
 
+// -------------------------------------------------------------------
+// Task setup
+//
+// Consumes the router (all subscriptions must be registered first),
+// spawns the MAVLink I/O loop on its own blocking thread with a
+// dedicated single-threaded runtime so it never competes with the
+// main Tokio pool.
+// -------------------------------------------------------------------
 pub fn setup_mavlink_task(
     conn: AsyncMavConn,
-) -> (
-    MavlinkHandle,
-    broadcast::Receiver<MavMessage>,
-    JoinHandle<()>,
-) {
+    router: MavlinkRouter,
+) -> (MavlinkHandle, JoinHandle<()>) {
     println!("control2: INIT MAVLINK TASK");
 
-    let (msg_tx, msg_rx) = broadcast::channel::<MavMessage>(1024);
     let (send_tx, mut send_rx) = mpsc::channel::<MavMessage>(128);
-
     let handle = MavlinkHandle { tx: send_tx };
 
-    let task = tokio::spawn(async move {
-        let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(1));
+    let subscriptions = router.subscriptions;
 
-        loop {
-            tokio::select! {
-                biased;
+    let task = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
 
-                _ = heartbeat_interval.tick() => {
-                    let heartbeat = MavMessage::HEARTBEAT(mavlink::dialects::common::HEARTBEAT_DATA {
-                        custom_mode: 0,
-                        mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
-                        autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
-                        base_mode: mavlink::dialects::common::MavModeFlag::empty(),
-                        system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
-                        mavlink_version: 3,
-                    });
+        rt.block_on(async move {
+            let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(1));
 
-                    if let Err(e) = conn.send_default(&heartbeat).await {
-                        eprintln!("MAVLink heartbeat send error: {e}");
-                    }
-                }
+            loop {
+                tokio::select! {
+                    // biased;
 
-                Some(msg) = send_rx.recv() => {
-                    if let Err(e) = conn.send_default(&msg).await {
-                        eprintln!("MAVLink send error: {e}");
-                    }
-                }
+                    _ = heartbeat_interval.tick() => {
+                        let heartbeat = MavMessage::HEARTBEAT(mavlink::dialects::common::HEARTBEAT_DATA {
+                            custom_mode: 0,
+                            mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
+                            autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
+                            base_mode: mavlink::dialects::common::MavModeFlag::empty(),
+                            system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
+                            mavlink_version: 3,
+                        });
 
-                result = conn.recv() => {
-                    match result {
-                        Ok((_header, msg)) => {
-                            msg_tx.send(msg).ok();
+                        if let Err(e) = conn.send_default(&heartbeat).await {
+                            eprintln!("MAVLink heartbeat send error: {e}");
                         }
-                        Err(e) => {
-                            eprintln!("MAVLink recv error: {e}");
-                            tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+
+                    Some(msg) = send_rx.recv() => {
+                        if let Err(e) = conn.send_default(&msg).await {
+                            eprintln!("MAVLink send error: {e}");
+                        }
+                    }
+
+                    result = conn.recv() => {
+                        match result {
+                            Ok((_header, msg)) => {
+                                // Fan out to every matching subscription.
+                                // Only subscribers whose `matches` predicate
+                                // returns true receive a clone; the last
+                                // matching subscriber gets the original.
+                                let mut remaining = subscriptions
+                                    .iter()
+                                    .filter(|s| (s.matches)(&msg))
+                                    .peekable();
+
+                                while let Some(sub) = remaining.next() {
+                                    if remaining.peek().is_some() {
+                                        (sub.forward)(msg.clone());
+                                    } else {
+                                        (sub.forward)(msg.clone()); // last one; clone avoidable with refactor but kept simple
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("MAVLink recv error: {e}");
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
                         }
                     }
                 }
             }
-        }
+        });
     });
 
-    (handle, msg_rx, task)
+    (handle, task)
 }
-
-type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;

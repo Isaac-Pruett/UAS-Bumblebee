@@ -1,23 +1,21 @@
 use crate::topic_utils::topic;
-use mavlink::dialects::common::MavMessage;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use zenoh::Session;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-pub trait MavMessageFilter {
-    fn matches(msg: &MavMessage) -> bool;
-}
-
-pub async fn create_telem_topic<T, F>(
+/// Spawn a Zenoh publisher that drains a typed mpsc channel.
+///
+/// The channel is produced by `MavlinkRouter::subscribe()` — no MavMessage
+/// pattern matching happens here; that was already done at subscription time.
+pub async fn create_telem_topic<T>(
     session: &Session,
     sensor_name: &str,
-    mut rx: tokio::sync::broadcast::Receiver<MavMessage>,
-    packet_from_msg: F,
+    mut rx: mpsc::Receiver<T>,
 ) -> JoinHandle<()>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    F: Fn(&MavMessage) -> Option<T> + Send + Sync + 'static,
+    T: Serialize + Send + 'static,
 {
     let topic_name = topic(format!("telemetry/{sensor_name}").as_str());
 
@@ -27,32 +25,22 @@ where
         .expect("failed to declare publisher");
 
     tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(m) => {
-                    if let Some(packet) = packet_from_msg(&m) {
-                        match rmp_serde::to_vec(&packet) {
-                            Ok(bytes) => {
-                                if let Err(e) = publ.put(bytes).await {
-                                    eprintln!("Failed to publish telemetry: {e}");
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to serialize telemetry: {e}");
-                            }
-                        }
+        let mut buf = Vec::with_capacity(512);
+
+        while let Some(packet) = rx.recv().await {
+            buf.clear();
+            match rmp_serde::encode::write(&mut buf, &packet) {
+                Ok(()) => {
+                    if let Err(e) = publ.put(buf.as_slice()).await {
+                        eprintln!("Failed to publish telemetry on '{topic_name}': {e}");
                     }
                 }
-
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    eprintln!("Receiver lagged, skipped {n} messages");
-                }
-
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    eprintln!("Broadcast channel closed, stopping '{topic_name}'");
-                    break;
+                Err(e) => {
+                    eprintln!("Failed to serialize telemetry on '{topic_name}': {e}");
                 }
             }
         }
+
+        eprintln!("Telem topic '{topic_name}' channel closed, stopping.");
     })
 }
