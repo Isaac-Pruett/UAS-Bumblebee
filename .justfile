@@ -36,12 +36,12 @@ develop:
 
 ARDUPILOT_DIR := justfile_directory() + "/ardupilot"
 ARDUPILOT_REPO := "https://github.com/ArduPilot/ardupilot.git"
-SITL_DEPS := "pexpect empy mavproxy future gnureadline"
+SITL_DEPS := "pexpect empy MAVProxy future gnureadline wxPython matplotlib PyOpenGL pymavlink pillow requests opencv-python"
 VEHICLE := "ArduCopter"
-SITL_ARGS := "-w --out 127.0.0.1:14551"
+SITL_ARGS := "-w --no-mavproxy"
 
 clone-ardupilot:
-    if [ ! -e {{ ARDUPILOT_DIR }} ]; then \
+    @if [ ! -e {{ ARDUPILOT_DIR }} ]; then \
         git clone --recurse-submodules {{ ARDUPILOT_REPO }} {{ ARDUPILOT_DIR }}; \
     elif [ -d {{ ARDUPILOT_DIR }}/.git ]; then \
         cd {{ ARDUPILOT_DIR }} && git submodule update --init --recursive; \
@@ -51,10 +51,16 @@ clone-ardupilot:
     fi
 
 setup-sitl: clone-ardupilot
-    cd {{ ARDUPILOT_DIR }} && \
-        UV_VENV_CLEAR=1 uv venv .venv && \
+    @cd {{ ARDUPILOT_DIR }} && \
+        UV_VENV_CLEAR=1 uv venv .venv --python 3.12 && \
         uv pip install {{ SITL_DEPS }}
 
 sitl: setup-sitl
-    cd {{ ARDUPILOT_DIR }} && \
+    @cd {{ ARDUPILOT_DIR }} && \
         uv run python Tools/autotest/sim_vehicle.py -v {{ VEHICLE }} {{ SITL_ARGS }}
+
+MAVPROXY_ARGS := "--master=tcp:127.0.0.1:5760 --map --console --out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14551"
+
+mavproxy:
+    @cd {{ ARDUPILOT_DIR }} && \
+        uv run python -m MAVProxy.mavproxy {{ MAVPROXY_ARGS }}
