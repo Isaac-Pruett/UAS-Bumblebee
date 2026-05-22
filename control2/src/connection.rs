@@ -7,11 +7,9 @@ type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
 
 // A filter+mapper registered with the router.
 // Boxes the closure so subscribers of different output types can coexist in one Vec.
-type SubscriberFn = Box<dyn Fn(&MavMessage) -> bool + Send + Sync>;
-type ForwardFn = Box<dyn Fn(MavMessage) + Send + Sync>;
+type ForwardFn = Box<dyn Fn(&MavMessage) + Send + Sync>;
 
 struct Subscription {
-    matches: SubscriberFn,
     forward: ForwardFn,
 }
 
@@ -47,15 +45,12 @@ impl MavlinkRouter {
 
         // We need two separate closures that share `extract`.
         // Wrap in Arc so both closures can own it.
-        let extract = std::sync::Arc::new(extract);
-        let extract2 = extract.clone();
 
         self.subscriptions.push(Subscription {
-            matches: Box::new(move |msg| extract(msg).is_some()),
             forward: Box::new(move |msg| {
-                if let Some(val) = extract2(&msg) {
+                if let Some(val) = extract(&msg) {
                     if tx.try_send(val).is_err() {
-                        eprintln!("MavlinkRouter: subscriber channel full, dropping message");
+                        // eprintln!("MavlinkRouter: subscriber channel full, dropping message");
                     }
                 }
             }),
@@ -123,7 +118,7 @@ pub fn setup_mavlink_task(
 
             loop {
                 tokio::select! {
-                    // biased;
+                    biased;
 
                     _ = heartbeat_interval.tick() => {
                         let heartbeat = MavMessage::HEARTBEAT(mavlink::dialects::common::HEARTBEAT_DATA {
@@ -153,17 +148,8 @@ pub fn setup_mavlink_task(
                                 // Only subscribers whose `matches` predicate
                                 // returns true receive a clone; the last
                                 // matching subscriber gets the original.
-                                let mut remaining = subscriptions
-                                    .iter()
-                                    .filter(|s| (s.matches)(&msg))
-                                    .peekable();
-
-                                while let Some(sub) = remaining.next() {
-                                    if remaining.peek().is_some() {
-                                        (sub.forward)(msg.clone());
-                                    } else {
-                                        (sub.forward)(msg.clone()); // last one; clone avoidable with refactor but kept simple
-                                    }
+                                for sub in &subscriptions {
+                                    (sub.forward)(&msg);
                                 }
                             }
                             Err(e) => {

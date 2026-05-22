@@ -24,9 +24,8 @@ where
         .await
         .expect("failed to declare publisher");
 
+    let mut buf = Vec::with_capacity(512);
     tokio::spawn(async move {
-        let mut buf = Vec::with_capacity(512);
-
         while let Some(packet) = rx.recv().await {
             buf.clear();
             match rmp_serde::encode::write(&mut buf, &packet) {

@@ -81,7 +81,7 @@ async fn main() {
         .await
         .expect("failed to initialize origin queryable");
 
-    profiler().await.ok();
+    // profiler().await.ok();
 
     pos_gl_int_h.await.ok();
     pos_lcl_enu_h.await.ok();
