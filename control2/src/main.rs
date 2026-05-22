@@ -1,5 +1,6 @@
 use glam::Vec3;
 use mavlink::dialects::common::MavMessage;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use std::time::{Duration, Instant};
@@ -109,31 +110,7 @@ async fn main() {
         .await
         .expect("failed to initialize origin queryable");
 
-    let mut prev = Instant::now();
-    let mut loop_count = 0u64;
-    let mut total_elapsed = Duration::ZERO;
-
-    loop {
-        let now = Instant::now();
-        let dt = now - prev;
-        prev = now;
-
-        total_elapsed += dt;
-        loop_count += 1;
-
-        // Print stats every 100 iterations instead of every loop
-        if loop_count % 100 == 0 {
-            let avg_hz = loop_count as f32 / total_elapsed.as_secs_f32();
-            let inst_hz = 1.0 / dt.as_secs_f32();
-            println!(
-                "inst: {inst_hz:.1} Hz | avg: {avg_hz:.1} Hz | dt: {:.2}ms",
-                dt.as_secs_f64() * 1000.0
-            );
-        }
-
-        // Yield to the async runtime — critical if you want other tasks to run
-        sleep(Duration::from_millis(10)).await; // or whatever your target rate is
-    }
+    profiler().await.ok();
 
     pos_gl_int_h.await.ok();
     pos_lcl_enu_h.await.ok();
@@ -141,4 +118,34 @@ async fn main() {
     hbh.await.ok();
 
     message_handle.await.ok();
+}
+
+pub fn profiler() -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut prev = Instant::now();
+        let mut loop_count = 0u64;
+        let mut total_elapsed = Duration::ZERO;
+
+        loop {
+            let now = Instant::now();
+            let dt = now - prev;
+            prev = now;
+
+            total_elapsed += dt;
+            loop_count += 1;
+
+            // Print stats every 100 iterations instead of every loop
+            if loop_count % 100 == 0 {
+                let avg_hz = loop_count as f32 / total_elapsed.as_secs_f32();
+                let inst_hz = 1.0 / dt.as_secs_f32();
+                println!(
+                    "inst: {inst_hz:.1} Hz | avg: {avg_hz:.1} Hz | dt: {:.2}ms",
+                    dt.as_secs_f64() * 1000.0
+                );
+            }
+
+            // Yield to the async runtime — critical if you want other tasks to run
+            sleep(Duration::from_millis(10)).await; // or whatever your target rate is
+        }
+    })
 }
