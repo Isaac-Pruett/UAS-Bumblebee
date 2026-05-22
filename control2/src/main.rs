@@ -34,6 +34,7 @@ async fn main() {
         .await
         .expect("control2: failed to initialize zenoh");
 
+    let start = Instant::now();
     let hbh = create_telem_topic(
         &session,
         "heartbeat",
@@ -42,7 +43,7 @@ async fn main() {
             MavMessage::HEARTBEAT(data) => {
                 // println!("BEAT!");
                 Some(Heartbeat {
-                    elapsed_us: Instant::now().elapsed().as_micros(),
+                    elapsed_us: start.elapsed().as_micros(),
                 })
             }
             _ => None,
@@ -120,32 +121,37 @@ async fn main() {
     message_handle.await.ok();
 }
 
+const LOOP_RATE: Duration = Duration::from_millis(10);
+
 pub fn profiler() -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut prev = Instant::now();
         let mut loop_count = 0u64;
-        let mut total_elapsed = Duration::ZERO;
+        let mut total_delay = Duration::ZERO;
+        let mut max_delay = Duration::ZERO;
 
         loop {
-            let now = Instant::now();
-            let dt = now - prev;
-            prev = now;
+            let sleep_start = Instant::now();
+            sleep(LOOP_RATE).await;
+            let actual_sleep = sleep_start.elapsed();
 
-            total_elapsed += dt;
+            // Delay is how much longer we slept than intended
+            let delay = actual_sleep.saturating_sub(LOOP_RATE);
+            total_delay += delay;
             loop_count += 1;
 
-            // Print stats every 100 iterations instead of every loop
-            if loop_count % 100 == 0 {
-                let avg_hz = loop_count as f32 / total_elapsed.as_secs_f32();
-                let inst_hz = 1.0 / dt.as_secs_f32();
-                println!(
-                    "inst: {inst_hz:.1} Hz | avg: {avg_hz:.1} Hz | dt: {:.2}ms",
-                    dt.as_secs_f64() * 1000.0
-                );
+            if delay > max_delay {
+                max_delay = delay;
             }
 
-            // Yield to the async runtime — critical if you want other tasks to run
-            sleep(Duration::from_millis(10)).await; // or whatever your target rate is
+            if loop_count % 100 == 0 {
+                let avg_delay_ms = total_delay.as_secs_f64() * 1000.0 / loop_count as f64;
+                println!(
+                    "delay — inst: {:.2}ms | avg: {:.2}ms | max: {:.2}ms",
+                    delay.as_secs_f64() * 1000.0,
+                    avg_delay_ms,
+                    max_delay.as_secs_f64() * 1000.0,
+                );
+            }
         }
     })
 }

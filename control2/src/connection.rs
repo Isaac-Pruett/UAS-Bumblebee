@@ -37,7 +37,7 @@ pub fn setup_mavlink_task(
 ) {
     println!("control2: INIT MAVLINK TASK");
 
-    let (msg_tx, msg_rx) = broadcast::channel::<MavMessage>(MAX_FRAME_SIZE);
+    let (msg_tx, msg_rx) = broadcast::channel::<MavMessage>(1024);
     let (send_tx, mut send_rx) = mpsc::channel::<MavMessage>(128);
 
     let handle = MavlinkHandle { tx: send_tx };
