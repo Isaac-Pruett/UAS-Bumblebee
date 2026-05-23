@@ -1,5 +1,5 @@
 {
-  description = "whoami_drone — Rust Zenoh Node";
+  description = "identity — Rust Zenoh Node";
 
   inputs = {
     flake-parts = {
@@ -50,7 +50,7 @@
         in
         naersk-lib.buildPackage {
           src = ./.;
-          pname = "whoami_drone";
+          pname = "identity";
           nativeBuildInputs = [ pkgs.git ];
         };
     };

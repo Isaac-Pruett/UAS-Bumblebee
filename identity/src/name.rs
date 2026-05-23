@@ -9,5 +9,5 @@ pub fn topic(endpoint: &str) -> String {
         name
     });
 
-    format!("{drone_name}/{endpoint}")
+    format!("{drone_name}/identity/{endpoint}")
 }

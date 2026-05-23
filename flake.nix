@@ -9,7 +9,7 @@
 
     mavlink.url = "./mavlink";
 
-    whoami_drone.url = "./whoami_drone";
+    identity.url = "./identity";
 
     zenohd.url = "./zenohd";
 
@@ -78,7 +78,7 @@
           rust_demo = inputs.rust-demo-sub.packages.${system}.default;
           python_demo = inputs.python-demo-sub.packages.${system}.default;
           mavlink = inputs.mavlink.packages.${system}.default;
-          whoami_drone = inputs.whoami_drone.packages.${system}.default;
+          identity = inputs.identity.packages.${system}.default;
 
           zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -132,7 +132,7 @@
             name = "execUAS";
             runtimeInputs = [
               self'.packages.mavlink
-              self'.packages.whoami_drone
+              self'.packages.identity
               self'.packages.zenohd
             ];
             text = ''
@@ -146,7 +146,7 @@
 
               spawn zenohd -c ${routerCfg} 1>/dev/null
               sleep 0.5
-              spawn whoami_drone
+              spawn identity
               spawn mavlink
 
               trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
@@ -155,9 +155,6 @@
           };
 
           default = self'.packages.dev;
-
-
-
 
         };
 

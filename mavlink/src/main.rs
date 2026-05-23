@@ -31,85 +31,40 @@ async fn main() {
         std::env::var("MAVLINK_CONN").unwrap_or_else(|_| "udpin:0.0.0.0:14551".to_string());
     let mavconn = mav_connect(&mavlink_conn_str).await;
 
-    // Register all subscriptions before the task starts.
-    // Each call pattern-matches once at the router level; telem topics
-    // receive already-extracted, already-typed values.
     let mut router = MavlinkRouter::new();
-
-    let start = Instant::now();
-    let heartbeat_rx = router.subscribe(move |msg| match msg {
-        MavMessage::HEARTBEAT(_) => Some(Heartbeat {
-            elapsed_us: start.elapsed().as_micros(),
-        }),
-        _ => None,
-    });
-
-    let ned_rx = router.subscribe(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.x, data.y, data.z)),
-        _ => None,
-    });
-
-    let enu_rx = router.subscribe(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.y, data.x, -data.z)),
-        _ => None,
-    });
-
-    let global_rx = router.subscribe(|msg| match msg {
-        MavMessage::GLOBAL_POSITION_INT(data) => Some(Coords {
-            lat_deg_e7: data.lat,
-            lon_deg_e7: data.lon,
-            alt_mm: data.alt,
-        }),
-        _ => None,
-    });
-
-    let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
 
     let session = zenoh::open(zenoh::Config::from_env().unwrap_or(zenoh::Config::default()))
         .await
         .expect("mavlink: failed to initialize zenoh");
 
-    let hbh = create_telem_topic(
-        &session,
-        "heartbeat",
-        heartbeat_rx,
-        false,
-        zenoh::qos::Priority::Background,
-    )
-    .await;
-    let pos_lcl_ned_h = create_telem_topic(
-        &session,
-        "pos/local/ned",
-        ned_rx,
-        true,
-        zenoh::qos::Priority::RealTime,
-    )
-    .await;
-    let pos_lcl_enu_h = create_telem_topic(
-        &session,
-        "pos/local/enu",
-        enu_rx,
-        true,
-        zenoh::qos::Priority::RealTime,
-    )
-    .await;
-    let pos_gl_int_h = create_telem_topic(
-        &session,
-        "pos/global/int",
-        global_rx,
-        true,
-        zenoh::qos::Priority::RealTime,
-    )
-    .await;
+    let telem_handles = telem::declare_all(&session, &mut router).await;
 
-    origin::declare_origin_sub(&session, mav_handle).await;
+    let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
+
+    origin::declare_origin_sub(&session, mav_handle.clone()).await;
+
+    control::declare_all(&session, mav_handle).await;
 
     // profiler().await.ok();
+    //
+    loop {
+        session
+            .get("*/whoami")
+            .timeout(Duration::from_secs(5))
+            .target(zenoh::query::QueryTarget::All)
+            .callback(|r| {
+                let p = r.result().expect("failed to collect reply").payload();
+                let s =
+                    rmp_serde::decode::from_slice::<String>(&p.to_bytes()).expect("deser failed");
+                println!("MY NAME IS {s}");
+            })
+            .await
+            .ok();
+    }
 
-    pos_gl_int_h.await.ok();
-    pos_lcl_enu_h.await.ok();
-    pos_lcl_ned_h.await.ok();
-    hbh.await.ok();
+    for h in telem_handles {
+        h.await.ok();
+    }
 
     message_handle.await.ok();
 }

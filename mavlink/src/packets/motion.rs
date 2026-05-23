@@ -3,23 +3,23 @@ use std::f32;
 use mavlink::dialects::common::{PositionTargetTypemask, SET_POSITION_TARGET_LOCAL_NED_DATA};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Movement {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 
-    vx: f32,
-    vy: f32,
-    vz: f32,
-    afx: f32,
-    afy: f32,
-    afz: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub vz: f32,
+    pub afx: f32,
+    pub afy: f32,
+    pub afz: f32,
 
-    force_en: bool,
+    pub force_en: bool,
 
-    yaw: f32,
-    yaw_rate: f32,
+    pub yaw: f32,
+    pub yaw_rate: f32,
 }
 
 impl Movement {
@@ -64,4 +64,52 @@ fn bitnan(i: f32) -> u16 {
         true => 0,
         false => 1,
     }
+}
+
+#[inline]
+pub fn ned_all(_: &mut Movement) {}
+
+#[inline]
+pub fn enu_all(m: &mut Movement) {
+    let t = m.clone();
+
+    m.x = t.y;
+    m.y = t.x;
+    m.z = -t.z;
+
+    m.vx = t.vy;
+    m.vy = t.vx;
+    m.vz = -t.vz;
+
+    m.afx = t.afy;
+    m.afy = t.afx;
+    m.afz = -t.afz;
+}
+
+#[inline]
+pub fn nan_vel(m: &mut Movement) {
+    m.vx = f32::NAN;
+    m.vy = f32::NAN;
+    m.vz = f32::NAN;
+}
+
+#[inline]
+pub fn nan_acc(m: &mut Movement) {
+    m.afx = f32::NAN;
+    m.afy = f32::NAN;
+    m.afz = f32::NAN;
+}
+
+#[inline]
+pub fn nan_pos(m: &mut Movement) {
+    m.x = f32::NAN;
+    m.y = f32::NAN;
+    m.z = f32::NAN;
+}
+
+#[inline]
+pub fn enu_pos(m: &mut Movement) {
+    enu_all(m);
+    nan_vel(m);
+    nan_acc(m);
 }

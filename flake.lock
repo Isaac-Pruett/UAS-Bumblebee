@@ -2,11 +2,7 @@
   "nodes": {
     "fenix": {
       "inputs": {
-        "nixpkgs": [
-          "mavlink",
-          "naersk",
-          "nixpkgs"
-        ],
+        "nixpkgs": ["mavlink", "naersk", "nixpkgs"],
         "rust-analyzer-src": "rust-analyzer-src"
       },
       "locked": {
@@ -25,11 +21,7 @@
     },
     "fenix_2": {
       "inputs": {
-        "nixpkgs": [
-          "rust-demo-sub",
-          "naersk",
-          "nixpkgs"
-        ],
+        "nixpkgs": ["rust-demo-sub", "naersk", "nixpkgs"],
         "rust-analyzer-src": "rust-analyzer-src_2"
       },
       "locked": {
@@ -48,11 +40,7 @@
     },
     "fenix_3": {
       "inputs": {
-        "nixpkgs": [
-          "whoami_drone",
-          "naersk",
-          "nixpkgs"
-        ],
+        "nixpkgs": ["identity", "naersk", "nixpkgs"],
         "rust-analyzer-src": "rust-analyzer-src_3"
       },
       "locked": {
@@ -89,10 +77,7 @@
     },
     "flake-parts_2": {
       "inputs": {
-        "nixpkgs-lib": [
-          "mavlink",
-          "nixpkgs"
-        ]
+        "nixpkgs-lib": ["mavlink", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1778716662,
@@ -110,10 +95,7 @@
     },
     "flake-parts_3": {
       "inputs": {
-        "nixpkgs-lib": [
-          "rust-demo-sub",
-          "nixpkgs"
-        ]
+        "nixpkgs-lib": ["rust-demo-sub", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1775087534,
@@ -131,10 +113,7 @@
     },
     "flake-parts_4": {
       "inputs": {
-        "nixpkgs-lib": [
-          "whoami_drone",
-          "nixpkgs"
-        ]
+        "nixpkgs-lib": ["identity", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1778716662,
@@ -469,18 +448,9 @@
     },
     "pyproject-build-systems": {
       "inputs": {
-        "nixpkgs": [
-          "python-demo-sub",
-          "nixpkgs"
-        ],
-        "pyproject-nix": [
-          "python-demo-sub",
-          "pyproject-nix"
-        ],
-        "uv2nix": [
-          "python-demo-sub",
-          "uv2nix"
-        ]
+        "nixpkgs": ["python-demo-sub", "nixpkgs"],
+        "pyproject-nix": ["python-demo-sub", "pyproject-nix"],
+        "uv2nix": ["python-demo-sub", "uv2nix"]
       },
       "locked": {
         "lastModified": 1776659114,
@@ -498,10 +468,7 @@
     },
     "pyproject-nix": {
       "inputs": {
-        "nixpkgs": [
-          "python-demo-sub",
-          "nixpkgs"
-        ]
+        "nixpkgs": ["python-demo-sub", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1778901413,
@@ -541,7 +508,7 @@
         "nixpkgs": "nixpkgs_4",
         "python-demo-sub": "python-demo-sub",
         "rust-demo-sub": "rust-demo-sub",
-        "whoami_drone": "whoami_drone",
+        "identity": "identity",
         "zenohd": "zenohd"
       }
     },
@@ -669,14 +636,8 @@
     },
     "uv2nix": {
       "inputs": {
-        "nixpkgs": [
-          "python-demo-sub",
-          "nixpkgs"
-        ],
-        "pyproject-nix": [
-          "python-demo-sub",
-          "pyproject-nix"
-        ]
+        "nixpkgs": ["python-demo-sub", "nixpkgs"],
+        "pyproject-nix": ["python-demo-sub", "pyproject-nix"]
       },
       "locked": {
         "lastModified": 1779411315,
@@ -692,7 +653,7 @@
         "type": "github"
       }
     },
-    "whoami_drone": {
+    "identity": {
       "inputs": {
         "flake-parts": "flake-parts_4",
         "naersk": "naersk_3",
@@ -700,11 +661,11 @@
         "rust-overlay": "rust-overlay_3"
       },
       "locked": {
-        "path": "./whoami_drone",
+        "path": "./identity",
         "type": "path"
       },
       "original": {
-        "path": "./whoami_drone",
+        "path": "./identity",
         "type": "path"
       },
       "parent": []
