@@ -1,5 +1,5 @@
 {
-  description = "control2 — Rust Mavlink communicator using zenoh";
+  description = "mavlink — Rust Mavlink communicator using zenoh";
 
   inputs = {
     flake-parts = {
@@ -46,7 +46,7 @@
         in
         naersk-lib.buildPackage {
           src = ./.;
-          pname = "control2";
+          pname = "mavlink";
           nativeBuildInputs = [ pkgs.git ];
         };
 

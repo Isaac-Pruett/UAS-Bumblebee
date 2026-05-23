@@ -326,19 +326,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "control2"
-version = "0.1.0"
-dependencies = [
- "glam",
- "mavlink",
- "rmp-serde",
- "serde",
- "tokio",
- "zenoh",
- "zenoh-ext",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1311,6 +1298,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "mavlink"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "mavlink 0.18.0",
+ "rmp-serde",
+ "serde",
+ "tokio",
+ "zenoh",
+ "zenoh-ext",
 ]
 
 [[package]]

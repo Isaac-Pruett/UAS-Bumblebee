@@ -8,6 +8,7 @@
     python-demo-sub.url = "./python_demo";
 
 
+
     zenohd.url = "./zenohd";
 
   };
@@ -59,7 +60,6 @@
         '';
 
 
-
       in {
         # Expose subproject packages for composition
         packages = {
@@ -67,6 +67,17 @@
           python_demo = inputs.python-demo-sub.packages.${system}.default;
 
           zenohd = inputs.zenohd.packages.${system}.default;
+          nuze = pkgs.rustPlatform.buildRustPackage rec {
+            pname = "nuze";
+            version = "0.3.0";
+
+            src = pkgs.fetchCrate {
+              inherit pname version;
+              hash = "sha256-aaL01xlN0oLAuEcRMbkN3+JRcQ03/6VgZWs+y6M64K8=";
+            };
+
+            cargoHash = "sha256-Ik72sGNDeMh+YNWloErhFx+YLYHMEZ1aWBWmKWYUQNg=";
+          };
 
           # Launcher: Spins up all with shared config
           demo = pkgs.writeShellApplication {
@@ -116,15 +127,16 @@
 
             pkgs.just
             pkgs.uv
+            self'.packages.nuze
 
           ];
           env.ZENOH_CONFIG = sharedConfig;
 
           shellHook = ''
-            export ZENOH_CONFIG=${sharedConfig}
             alias j="just"
             echo "Run 'demo-ping-pong-zenoh' to start demo."
             echo "just is aliased to j"
+            zenohd -c ${routerCfg}
           '';
         };
       };

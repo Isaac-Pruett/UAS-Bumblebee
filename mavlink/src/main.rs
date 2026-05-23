@@ -1,5 +1,6 @@
 use glam::Vec3;
-use mavlink::dialects::common::MavMessage;
+use mavlink::dialects::common::{MavCmd, MavMessage, SET_GPS_GLOBAL_ORIGIN_DATA};
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -10,7 +11,7 @@ use zenoh::{self};
 use mavlink;
 
 use crate::connection::{MavlinkRouter, mav_connect, setup_mavlink_task};
-use crate::packets::coords::Coords;
+use crate::packets::coords::{self, Coords};
 use crate::packets::heartbeat::Heartbeat;
 use crate::telem::create_telem_topic;
 
@@ -59,27 +60,37 @@ async fn main() {
         _ => None,
     });
 
-    let (_mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
+    let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
 
     let session = zenoh::open(zenoh::Config::from_env().unwrap_or(zenoh::Config::default()))
         .await
-        .expect("control2: failed to initialize zenoh");
+        .expect("mavlink: failed to initialize zenoh");
 
     let hbh = create_telem_topic(&session, "heartbeat", heartbeat_rx).await;
     let pos_lcl_ned_h = create_telem_topic(&session, "pos/local/ned", ned_rx).await;
     let pos_lcl_enu_h = create_telem_topic(&session, "pos/local/enu", enu_rx).await;
     let pos_gl_int_h = create_telem_topic(&session, "pos/global/int", global_rx).await;
 
-    let _origin_queryable = session
-        .declare_queryable(topic("origin/set"))
-        .callback(|query| {
+    let _origin_set_sub = session
+        .declare_subscriber(topic("origin/set"))
+        .callback(move |sample| {
+            let mav_handle = mav_handle.clone();
             tokio::spawn(async move {
-                let payload = rmp_serde::to_vec(&[true]).unwrap_or(vec![]);
-                query.reply(topic("origin/ack"), payload).await.ok();
+                let bytes = &*sample.payload().to_bytes();
+                if let Ok(coords) = rmp_serde::from_slice::<Coords>(bytes) {
+                    #[allow(deprecated)] // mav gotta be mav
+                    let msg = MavMessage::SET_GPS_GLOBAL_ORIGIN(SET_GPS_GLOBAL_ORIGIN_DATA {
+                        latitude: coords.lat_deg_e7,
+                        longitude: coords.lon_deg_e7,
+                        altitude: coords.alt_mm,
+                        target_system: 1,
+                    });
+                    mav_handle.send(msg).await.ok();
+                }
             });
         })
         .await
-        .expect("failed to initialize origin queryable");
+        .expect("failed to initialize origin setter");
 
     // profiler().await.ok();
 

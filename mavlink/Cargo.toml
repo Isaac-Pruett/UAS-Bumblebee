@@ -1,5 +1,5 @@
 [package]
-name = "control2"
+name = "mavlink"
 version = "0.1.0"
 edition = "2024"
 
@@ -25,5 +25,5 @@ zenoh = { version = ">=1.9", features = ["shared-memory"] }
 zenoh-ext = ">=1.9"
 
 [[bin]]
-name = "control2"
+name = "mavlink"
 path = "src/main.rs"

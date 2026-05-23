@@ -100,7 +100,7 @@ pub fn setup_mavlink_task(
     conn: AsyncMavConn,
     router: MavlinkRouter,
 ) -> (MavlinkHandle, JoinHandle<()>) {
-    println!("control2: INIT MAVLINK TASK");
+    println!("mavlink: INIT MAVLINK TASK");
 
     let (send_tx, mut send_rx) = mpsc::channel::<MavMessage>(128);
     let handle = MavlinkHandle { tx: send_tx };
