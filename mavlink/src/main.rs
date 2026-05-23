@@ -16,13 +16,16 @@ use crate::packets::heartbeat::Heartbeat;
 use crate::telem::create_telem_topic;
 
 mod connection;
+
+mod control;
+mod origin;
 mod packets;
 mod telem;
 mod topic_utils;
 
 use crate::topic_utils::topic;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::main]
 async fn main() {
     let mavlink_conn_str =
         std::env::var("MAVLINK_CONN").unwrap_or_else(|_| "udpin:0.0.0.0:14551".to_string());
@@ -66,31 +69,40 @@ async fn main() {
         .await
         .expect("mavlink: failed to initialize zenoh");
 
-    let hbh = create_telem_topic(&session, "heartbeat", heartbeat_rx).await;
-    let pos_lcl_ned_h = create_telem_topic(&session, "pos/local/ned", ned_rx).await;
-    let pos_lcl_enu_h = create_telem_topic(&session, "pos/local/enu", enu_rx).await;
-    let pos_gl_int_h = create_telem_topic(&session, "pos/global/int", global_rx).await;
+    let hbh = create_telem_topic(
+        &session,
+        "heartbeat",
+        heartbeat_rx,
+        false,
+        zenoh::qos::Priority::Background,
+    )
+    .await;
+    let pos_lcl_ned_h = create_telem_topic(
+        &session,
+        "pos/local/ned",
+        ned_rx,
+        true,
+        zenoh::qos::Priority::RealTime,
+    )
+    .await;
+    let pos_lcl_enu_h = create_telem_topic(
+        &session,
+        "pos/local/enu",
+        enu_rx,
+        true,
+        zenoh::qos::Priority::RealTime,
+    )
+    .await;
+    let pos_gl_int_h = create_telem_topic(
+        &session,
+        "pos/global/int",
+        global_rx,
+        true,
+        zenoh::qos::Priority::RealTime,
+    )
+    .await;
 
-    let _origin_set_sub = session
-        .declare_subscriber(topic("origin/set"))
-        .callback(move |sample| {
-            let mav_handle = mav_handle.clone();
-            tokio::spawn(async move {
-                let bytes = &*sample.payload().to_bytes();
-                if let Ok(coords) = rmp_serde::from_slice::<Coords>(bytes) {
-                    #[allow(deprecated)] // mav gotta be mav
-                    let msg = MavMessage::SET_GPS_GLOBAL_ORIGIN(SET_GPS_GLOBAL_ORIGIN_DATA {
-                        latitude: coords.lat_deg_e7,
-                        longitude: coords.lon_deg_e7,
-                        altitude: coords.alt_mm,
-                        target_system: 1,
-                    });
-                    mav_handle.send(msg).await.ok();
-                }
-            });
-        })
-        .await
-        .expect("failed to initialize origin setter");
+    origin::declare_origin_sub(&session, mav_handle).await;
 
     // profiler().await.ok();
 

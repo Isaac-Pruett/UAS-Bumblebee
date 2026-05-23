@@ -69,7 +69,7 @@
           }
         '';
 
-        droneName = "alpha";
+
 
 
       in {
@@ -107,7 +107,7 @@
             ];
             text = ''
               export ZENOH_CONFIG=${sharedConfig}
-              export DRONE_NAME=${droneName}
+
               echo "Launching with shared config: $ZENOH_CONFIG"
 
               zenohd -c ${routerCfg} 1>/dev/null &
@@ -137,7 +137,7 @@
             ];
             text = ''
               export ZENOH_CONFIG=${sharedConfig}
-              export DRONE_NAME=${droneName}
+              export DRONE_NAME=bingus
               echo "Launching with shared config: $ZENOH_CONFIG"
 
               PIDS=()

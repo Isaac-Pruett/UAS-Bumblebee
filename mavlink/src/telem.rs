@@ -4,6 +4,7 @@ use tokio::task::JoinHandle;
 use zenoh::Session;
 
 use serde::Serialize;
+use zenoh::qos::Priority;
 
 /// Spawn a Zenoh publisher that drains a typed mpsc channel.
 ///
@@ -13,6 +14,8 @@ pub async fn create_telem_topic<T>(
     session: &Session,
     sensor_name: &str,
     mut rx: mpsc::Receiver<T>,
+    is_express: bool,
+    priority: Priority,
 ) -> JoinHandle<()>
 where
     T: Serialize + Send + 'static,
@@ -21,6 +24,8 @@ where
 
     let publ = session
         .declare_publisher(topic_name.clone())
+        .express(is_express)
+        .priority(priority)
         .await
         .expect("failed to declare publisher");
 
