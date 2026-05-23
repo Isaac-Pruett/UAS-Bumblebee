@@ -1,5 +1,5 @@
 [package]
-name = "identity_manager"
+name = "whoami_drone"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,5 +11,5 @@ zenoh = {version = ">=1.7.2", features = ["shared-memory"]}
 zenoh-ext = ">=1.7.2"
 
 [[bin]]
-name = "identity_manager"
+name = "whoami_drone"
 path = "src/main.rs"

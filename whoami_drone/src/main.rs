@@ -1,6 +1,5 @@
-use std::{thread::sleep, time::Duration};
+use std::time::Duration;
 use zenoh;
-use zenoh::Wait;
 
 mod name;
 #[tokio::main]
@@ -13,14 +12,14 @@ async fn main() {
         .callback(|query| {
             tokio::spawn(async move {
                 if let Some(n) = name::DRONE_NAME.get() {
-                    query.reply(name::topic("whoami"), n).await.ok();
+                    query.reply(query.key_expr().clone(), n).await.ok();
                 }
             });
         })
         .await
         .expect("failed to initialize whoami queryable");
     // Wait for subscribers to be ready
-    sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // execute when cancelled
     tokio::signal::ctrl_c().await.ok();

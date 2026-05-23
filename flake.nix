@@ -9,6 +9,8 @@
 
     mavlink.url = "./mavlink";
 
+    whoami_drone.url = "./whoami_drone";
+
     zenohd.url = "./zenohd";
 
   };
@@ -66,8 +68,11 @@
           rust_demo = inputs.rust-demo-sub.packages.${system}.default;
           python_demo = inputs.python-demo-sub.packages.${system}.default;
           mavlink = inputs.mavlink.packages.${system}.default;
+          whoami_drone = inputs.whoami_drone.packages.${system}.default;
 
           zenohd = inputs.zenohd.packages.${system}.default;
+
+
           nuze = pkgs.rustPlatform.buildRustPackage rec {
             pname = "nuze";
             version = "0.3.0";
@@ -111,7 +116,33 @@
             '';
           };
 
-          default = self'.packages.demo;
+
+          dev = pkgs.writeShellApplication {
+            name = "execUAS";
+            runtimeInputs = [
+              self'.packages.mavlink
+              self'.packages.whoami_drone
+              self'.packages.zenohd
+            ];
+            text = ''
+              export ZENOH_CONFIG=${sharedConfig}
+              echo "Launching with shared config: $ZENOH_CONFIG"
+
+              PIDS=()
+
+              spawn() { "$@" & PIDS+=($!); }
+
+              spawn zenohd -c ${routerCfg} 1>/dev/null
+              sleep 0.5
+              spawn whoami_drone
+              spawn mavlink
+
+              trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
+              wait "''${PIDS[@]:1}"
+            '';
+          };
+
+          default = self'.packages.dev;
 
 
 
