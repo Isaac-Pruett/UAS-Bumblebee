@@ -7,7 +7,7 @@
     rust-demo-sub.url = "./rust_demo";
     python-demo-sub.url = "./python_demo";
 
-
+    mavlink.url = "./mavlink";
 
     zenohd.url = "./zenohd";
 
@@ -65,6 +65,7 @@
         packages = {
           rust_demo = inputs.rust-demo-sub.packages.${system}.default;
           python_demo = inputs.python-demo-sub.packages.${system}.default;
+          mavlink = inputs.mavlink.packages.${system}.default;
 
           zenohd = inputs.zenohd.packages.${system}.default;
           nuze = pkgs.rustPlatform.buildRustPackage rec {

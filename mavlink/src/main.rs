@@ -94,6 +94,16 @@ async fn main() {
 
     // profiler().await.ok();
 
+    let test_sub = session
+        .declare_subscriber(topic("**"))
+        .callback(move |sample| {
+            let name = sample.key_expr();
+
+            println!("Got message from: {name}");
+        })
+        .await
+        .expect("fail test");
+
     pos_gl_int_h.await.ok();
     pos_lcl_enu_h.await.ok();
     pos_lcl_ned_h.await.ok();
