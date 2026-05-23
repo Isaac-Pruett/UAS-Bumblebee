@@ -19,7 +19,14 @@
             rev = "refs/tags/${version}";  # ← unambiguously targets a tag
             hash = "sha256-sFHUphFu5a+buSa3GQvSmGo8SFtn3V5ZqTOnWMPlvs8=";      # ← nix build will print the real one
           };
-          cargoBuildFlags = [ "--bin" "zenohd" ];
+          cargoBuildFlags = [ "--bin" "zenohd" "--example" "z_sub" "--example" "z_pub" "--example" "z_get" "--example" "z_scout" "--example" "z_queryable" ];
+          postInstall = ''
+            install -Dm755 target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/z_sub $out/bin/z_sub
+            install -Dm755 target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/z_pub $out/bin/z_pub
+            install -Dm755 target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/z_get $out/bin/z_get
+            install -Dm755 target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/z_scout $out/bin/z_scout
+            install -Dm755 target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/z_queryable $out/bin/z_queryable
+          '';
           doCheck = false;
           cargoHash = "sha256-1PjtZ5/bAnLlMbkcKAA6DCKDafItGiATjct5Pv8muas=";   # ← same: nix build prints the real one
           nativeBuildInputs = with pkgs; [ pkg-config ];

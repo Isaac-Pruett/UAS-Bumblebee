@@ -38,7 +38,7 @@
           # This is equivalent to packages.<system>.default
 
         # Generate shared Zenoh config (customize as needed; could derive from template)
-        sharedConfig = pkgs.writeText "zenoh-config.json" ''
+        sharedConfig = pkgs.writeText "zenoh-config.json5" ''
           {
             mode: "client",
             connect: {
@@ -48,7 +48,15 @@
               multicast: {
                 enabled: false
               }
-            }
+            },
+            transport: {
+              unicast: {
+                lowlatency: false,
+                shm: {
+                  enabled: true,
+                },
+              },
+            },
           }
         '';
 
@@ -60,6 +68,8 @@
             }
           }
         '';
+
+        droneName = "alpha";
 
 
       in {
@@ -97,6 +107,7 @@
             ];
             text = ''
               export ZENOH_CONFIG=${sharedConfig}
+              export DRONE_NAME=${droneName}
               echo "Launching with shared config: $ZENOH_CONFIG"
 
               zenohd -c ${routerCfg} 1>/dev/null &
@@ -126,6 +137,7 @@
             ];
             text = ''
               export ZENOH_CONFIG=${sharedConfig}
+              export DRONE_NAME=${droneName}
               echo "Launching with shared config: $ZENOH_CONFIG"
 
               PIDS=()
@@ -168,7 +180,7 @@
             alias j="just"
             echo "Run 'demo-ping-pong-zenoh' to start demo."
             echo "just is aliased to j"
-            zenohd -c ${routerCfg}
+            # zenohd -c ${routerCfg}
           '';
         };
       };
