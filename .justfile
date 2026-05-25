@@ -38,7 +38,7 @@ ARDUPILOT_DIR := justfile_directory() + "/ardupilot"
 ARDUPILOT_REPO := "https://github.com/ArduPilot/ardupilot.git"
 SITL_DEPS := "pexpect empy MAVProxy future gnureadline wxPython matplotlib PyOpenGL pymavlink pillow requests opencv-python"
 VEHICLE := "ArduCopter"
-SITL_ARGS := "-w --no-mavproxy"
+SITL_ARGS := "-w "
 
 clone-ardupilot:
     @if [ ! -e {{ ARDUPILOT_DIR }} ]; then \
@@ -59,7 +59,7 @@ sitl: setup-sitl
     @cd {{ ARDUPILOT_DIR }} && \
         uv run python Tools/autotest/sim_vehicle.py -v {{ VEHICLE }} {{ SITL_ARGS }}
 
-MAVPROXY_ARGS := "--master=tcp:127.0.0.1:5760 --map --console --out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14551"
+MAVPROXY_ARGS := "--master=udp:127.0.0.1:14550 --console --map  --out=udp:127.0.0.1:14551"
 
 mavproxy:
     @cd {{ ARDUPILOT_DIR }} && \

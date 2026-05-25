@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use mavlink::dialects::common::MavMessage;
+use mavlink::dialects::common::{
+    MavFrame::{MAV_FRAME_BODY_FRD, MAV_FRAME_LOCAL_NED},
+    MavMessage,
+};
 
 use crate::{
     connection::MavlinkHandle,
@@ -13,6 +16,7 @@ pub async fn declare_movement_input_sub(
     endpoint: &str,
     mavconn: MavlinkHandle,
     to_valid_packet: MovementFn,
+    is_body_frame: bool,
 ) {
     session
         .declare_subscriber(topic(endpoint))
@@ -27,7 +31,11 @@ pub async fn declare_movement_input_sub(
                 if let Some(mut m) = movement {
                     to_valid_packet(&mut m);
 
-                    if let Some(packet) = m.as_packet() {
+                    if let Some(mut packet) = m.as_packet() {
+                        packet.coordinate_frame = match is_body_frame {
+                            false => MAV_FRAME_LOCAL_NED,
+                            true => MAV_FRAME_BODY_FRD,
+                        };
                         let _res = mavconn
                             .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))
                             .await
@@ -50,6 +58,7 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
                 // dindu nuffin
                 motion::ned_all(m);
             }) as MovementFn,
+            false,
         ),
         (
             "control/move/ned/pos",
@@ -58,12 +67,15 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
                 motion::nan_vel(m);
                 motion::nan_acc(m);
             }) as MovementFn,
+            false,
         ),
         (
             "control/move/enu/raw",
             Arc::new(|m: &mut Movement| {
+                // println!("MOVED: {m:?}");
                 motion::enu_all(m);
             }) as MovementFn,
+            false,
         ),
         (
             "control/move/enu/pos",
@@ -72,6 +84,7 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
                 motion::nan_vel(m);
                 motion::nan_acc(m);
             }) as MovementFn,
+            false,
         ),
         (
             "control/move/enu/velo",
@@ -80,6 +93,7 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
                 motion::nan_pos(m);
                 motion::nan_acc(m);
             }) as MovementFn,
+            false,
         ),
         (
             "control/move/ned/velo",
@@ -88,10 +102,64 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
                 motion::nan_pos(m);
                 motion::nan_acc(m);
             }) as MovementFn,
+            false,
+        ),
+        /////////////////////////////////////////////
+        (
+            "control/move/frd/raw",
+            Arc::new(|m: &mut Movement| {
+                // dindu nuffin
+                motion::ned_all(m);
+            }) as MovementFn,
+            true,
+        ),
+        (
+            "control/move/frd/pos",
+            Arc::new(|m: &mut Movement| {
+                motion::ned_all(m);
+                motion::nan_vel(m);
+                motion::nan_acc(m);
+            }) as MovementFn,
+            true,
+        ),
+        (
+            "control/move/flu/raw",
+            Arc::new(|m: &mut Movement| {
+                // println!("MOVED: {m:?}");
+                motion::enu_all(m);
+            }) as MovementFn,
+            true,
+        ),
+        (
+            "control/move/flu/pos",
+            Arc::new(|m: &mut Movement| {
+                motion::enu_all(m);
+                motion::nan_vel(m);
+                motion::nan_acc(m);
+            }) as MovementFn,
+            true,
+        ),
+        (
+            "control/move/flu/velo",
+            Arc::new(|m: &mut Movement| {
+                motion::enu_all(m);
+                motion::nan_pos(m);
+                motion::nan_acc(m);
+            }) as MovementFn,
+            true,
+        ),
+        (
+            "control/move/frd/velo",
+            Arc::new(|m: &mut Movement| {
+                motion::ned_all(m);
+                motion::nan_pos(m);
+                motion::nan_acc(m);
+            }) as MovementFn,
+            true,
         ),
     ];
 
-    for (k, f) in pairs {
-        declare_movement_input_sub(&session, k, mavconn.clone(), f.clone()).await;
+    for (k, f, b) in pairs {
+        declare_movement_input_sub(&session, k, mavconn.clone(), f.clone(), b).await;
     }
 }

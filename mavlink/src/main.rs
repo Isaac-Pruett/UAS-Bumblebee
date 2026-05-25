@@ -1,6 +1,3 @@
-use glam::Vec3;
-use mavlink::dialects::common::{MavCmd, MavMessage, SET_GPS_GLOBAL_ORIGIN_DATA};
-use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -8,22 +5,14 @@ use std::time::{Duration, Instant};
 
 use zenoh::{self};
 
-use mavlink;
-
 use crate::connection::{MavlinkRouter, mav_connect, setup_mavlink_task};
-use crate::packets::coords::{self, Coords};
-use crate::packets::heartbeat::Heartbeat;
-use crate::telem::create_telem_topic;
 
 mod connection;
 
 mod control;
-mod origin;
 mod packets;
 mod telem;
 mod topic_utils;
-
-use crate::topic_utils::topic;
 
 #[tokio::main]
 async fn main() {
@@ -41,26 +30,11 @@ async fn main() {
 
     let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
 
-    origin::declare_origin_sub(&session, mav_handle.clone()).await;
+    control::origin::declare_origin_sub(&session, mav_handle.clone()).await;
 
-    control::declare_all(&session, mav_handle).await;
+    control::movement::declare_all(&session, mav_handle).await;
 
     // profiler().await.ok();
-    //
-    loop {
-        session
-            .get("*/whoami")
-            .timeout(Duration::from_secs(5))
-            .target(zenoh::query::QueryTarget::All)
-            .callback(|r| {
-                let p = r.result().expect("failed to collect reply").payload();
-                let s =
-                    rmp_serde::decode::from_slice::<String>(&p.to_bytes()).expect("deser failed");
-                println!("MY NAME IS {s}");
-            })
-            .await
-            .ok();
-    }
 
     for h in telem_handles {
         h.await.ok();

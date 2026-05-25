@@ -25,25 +25,27 @@ pub struct Movement {
 impl Movement {
     pub fn as_packet(&self) -> Option<SET_POSITION_TARGET_LOCAL_NED_DATA> {
         let f = self.flag();
+        // println!("MASK: {}", format!("0x{:04X}", f));
+
         if let Some(mask) = PositionTargetTypemask::from_bits(f) {
             Some(SET_POSITION_TARGET_LOCAL_NED_DATA {
                 time_boot_ms: 0,
                 target_system: 1,
                 target_component: 1,
-                coordinate_frame: mavlink::dialects::common::MavFrame::MAV_FRAME_LOCAL_NED,
+                coordinate_frame: mavlink::dialects::common::MavFrame::MAV_FRAME_LOCAL_NED, // WILL BE OVERRIDDEN
                 type_mask: mask,
 
-                x: self.x,
-                y: self.y,
-                z: self.z,
-                vx: self.vx,
-                vy: self.vy,
-                vz: self.vz,
-                afx: self.afx,
-                afy: self.afy,
-                afz: self.afz,
-                yaw: self.yaw,
-                yaw_rate: self.yaw_rate,
+                x: clean(self.x),
+                y: clean(self.y),
+                z: clean(self.z),
+                vx: clean(self.vx),
+                vy: clean(self.vy),
+                vz: clean(self.vz),
+                afx: clean(self.afx),
+                afy: clean(self.afy),
+                afz: clean(self.afz),
+                yaw: clean(self.yaw),
+                yaw_rate: clean(self.yaw_rate),
             })
         } else {
             None
@@ -51,19 +53,30 @@ impl Movement {
     }
 
     fn flag(&self) -> u16 {
-        (bitnan(self.x)<< 0) | (bitnan(self.y)<< 0) | (bitnan(self.z)<< 0) | // x, y, z
-            (bitnan(self.vx)<< 3) | (bitnan(self.vy)<< 4) | (bitnan(self.vz)<< 5) | // vx, vy, vz
-            (bitnan(self.afx)<< 6) | (bitnan(self.afy)<< 7) | (bitnan(self.afz)<< 8) | // ax, ay, az
-            (((!self.force_en) as u16) << 10) |                       // force/accel flag ignored
-            (bitnan(self.yaw) << 11) | (bitnan(self.yaw_rate)<< 12) // yaw, yaw_rate
+        (bitnan(self.x) << 0)
+            | (bitnan(self.y) << 1)
+            | (bitnan(self.z) << 2)
+            | (bitnan(self.vx) << 3)
+            | (bitnan(self.vy) << 4)
+            | (bitnan(self.vz) << 5)
+            | (bitnan(self.afx) << 6)
+            | (bitnan(self.afy) << 7)
+            | (bitnan(self.afz) << 8)
+            | (((!self.force_en) as u16) << 9)
+            | (bitnan(self.yaw) << 10)
+            | (bitnan(self.yaw_rate) << 11)
     }
 }
 
 fn bitnan(i: f32) -> u16 {
     match i.is_nan() {
-        true => 0,
-        false => 1,
+        true => 1,
+        false => 0,
     }
+}
+
+fn clean(i: f32) -> f32 {
+    if i.is_nan() { 0.0 } else { i }
 }
 
 #[inline]
@@ -91,6 +104,7 @@ pub fn nan_vel(m: &mut Movement) {
     m.vx = f32::NAN;
     m.vy = f32::NAN;
     m.vz = f32::NAN;
+    m.yaw_rate = f32::NAN;
 }
 
 #[inline]
@@ -105,6 +119,7 @@ pub fn nan_pos(m: &mut Movement) {
     m.x = f32::NAN;
     m.y = f32::NAN;
     m.z = f32::NAN;
+    m.yaw = f32::NAN;
 }
 
 #[inline]
@@ -112,4 +127,10 @@ pub fn enu_pos(m: &mut Movement) {
     enu_all(m);
     nan_vel(m);
     nan_acc(m);
+}
+
+#[inline]
+pub fn nan_yaw(m: &mut Movement) {
+    m.yaw = f32::NAN;
+    m.yaw_rate = f32::NAN;
 }
