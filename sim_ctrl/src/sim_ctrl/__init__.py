@@ -39,7 +39,7 @@ def main():
     )
     listener.start()
 
-    pub = session.declare_publisher(f"{NAME}/mavlink/control/move/enu/raw")
+    pub = session.declare_publisher(f"{NAME}/mavlink/control/move/flu/raw")
 
     sleep(0.5)
 

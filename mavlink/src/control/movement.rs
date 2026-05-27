@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use mavlink::dialects::common::{
-    MavFrame::{MAV_FRAME_BODY_FRD, MAV_FRAME_LOCAL_NED},
+    MavFrame::{
+        self, MAV_FRAME_BODY_FRD, MAV_FRAME_BODY_OFFSET_NED, MAV_FRAME_LOCAL_NED,
+        MAV_FRAME_LOCAL_OFFSET_NED,
+    },
     MavMessage,
 };
 
@@ -15,26 +18,26 @@ pub async fn declare_movement_input_sub(
     session: &zenoh::Session,
     endpoint: &str,
     mavconn: MavlinkHandle,
-    to_valid_packet: MovementFn,
+    frame_conversion: MovementFn,
     is_body_frame: bool,
 ) {
     session
         .declare_subscriber(topic(endpoint))
         .callback(move |sample| {
             let mavconn = mavconn.clone();
-            let to_valid_packet = to_valid_packet.clone();
+            let frame_conversion = frame_conversion.clone();
 
             tokio::spawn(async move {
-                let movement =
-                    rmp_serde::from_slice::<Movement>(&*sample.payload().to_bytes()).ok();
+                let bytes = &*sample.payload().to_bytes();
+                let movement = rmp_serde::from_slice::<Movement>(bytes).ok();
 
                 if let Some(mut m) = movement {
-                    to_valid_packet(&mut m);
+                    frame_conversion(&mut m);
 
                     if let Some(mut packet) = m.as_packet() {
                         packet.coordinate_frame = match is_body_frame {
                             false => MAV_FRAME_LOCAL_NED,
-                            true => MAV_FRAME_BODY_FRD,
+                            true => MAV_FRAME_BODY_OFFSET_NED,
                         };
                         let _res = mavconn
                             .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))

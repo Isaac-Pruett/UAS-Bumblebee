@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use mavlink::{AsyncMavConnection, MavlinkVersion, dialects::common::MavMessage};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{mpsc, watch},
+    task::JoinHandle,
+};
 
 type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
 
@@ -52,6 +55,30 @@ impl MavlinkRouter {
                     if tx.try_send(val).is_err() {
                         // eprintln!("MavlinkRouter: subscriber channel full, dropping message");
                     }
+                }
+            }),
+        });
+
+        rx
+    }
+
+    /// Like `subscribe`, but backed by a `watch` channel. The router always
+    /// writes the latest value; the receiver only ever sees the most recent one.
+    /// Use for high-rate sensor streams where stale intermediate values can be
+    /// discarded (position, velocity, etc.).
+    pub fn subscribe_watch<T, F>(&mut self, extract: F) -> watch::Receiver<Option<T>>
+    where
+        T: Send + Sync + 'static,
+        F: Fn(&MavMessage) -> Option<T> + Send + Sync + 'static,
+    {
+        let (tx, rx) = watch::channel::<Option<T>>(None);
+
+        self.subscriptions.push(Subscription {
+            forward: Box::new(move |msg| {
+                if let Some(val) = extract(msg) {
+                    // watch::Sender::send only errors if all receivers are
+                    // dropped — safe to ignore.
+                    let _ = tx.send(Some(val));
                 }
             }),
         });
