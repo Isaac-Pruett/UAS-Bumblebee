@@ -58,6 +58,7 @@
           sharedConfig = pkgs.writeText "zenoh-config.json5" ''
             {
               mode: "client",
+              namespace: "bingus",
               connect: {
                 endpoints: ["tcp/127.0.0.1:7447"]
               },
@@ -69,9 +70,9 @@
               transport: {
                 unicast: {
                   lowlatency: false,
-                  shm: {
-                    enabled: true,
-                  },
+                },
+                shared_memory: {
+                  enabled: true,
                 },
               },
             }
@@ -136,7 +137,7 @@
                 rust_demo &
                 RUST_PID=$!
 
-                trap 'kill $ZENOH_PID $PYTHON_PID $RUST_PID 2>/dev/null' EXIT INT TERM
+                trap 'kill $PYTHON_PID $RUST_PID 2>/dev/null' EXIT INT TERM
 
                 wait $PYTHON_PID $RUST_PID
               '';
@@ -178,10 +179,8 @@
           devShells.default = pkgs.mkShell {
             packages = [
               self'.packages.demo
-              self'.packages.rust_demo
-              self'.packages.python_demo
               self'.packages.zenohd
-
+              self'.packages.dev
               pkgs.just
               pkgs.uv
               self'.packages.nuze

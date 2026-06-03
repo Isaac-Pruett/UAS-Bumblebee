@@ -12,27 +12,39 @@ mod connection;
 mod control;
 mod packets;
 mod telem;
-mod topic_utils;
 
 #[tokio::main]
 async fn main() {
+    let config_path = std::env::var("ZENOH_CONFIG").expect("ZENOH_CONFIG not set");
+    let mut cfg = zenoh::Config::from_file(&config_path).expect("failed to load ZENOH_CONFIG file");
+
+    let pfx = cfg
+        .get_json("namespace")
+        .expect("bad configuration, no namespace")
+        .trim_matches('"')
+        .trim_matches('/')
+        .to_string();
+
+    let namespace = format!("{pfx}/mavlink");
+
+    cfg.insert_json5("namespace", format!(r#""{}""#, namespace).as_str())
+        .expect("mavlink: failed to set namespace");
+
+    let session = zenoh::open(cfg)
+        .await
+        .expect("mavlink: failed to initialize zenoh");
+
     let mavlink_conn_str =
         std::env::var("MAVLINK_CONN").unwrap_or_else(|_| "udpin:0.0.0.0:14551".to_string());
     let mavconn = mav_connect(&mavlink_conn_str).await;
 
     let mut router = MavlinkRouter::new();
-
-    let session = zenoh::open(zenoh::Config::from_env().unwrap_or(zenoh::Config::default()))
-        .await
-        .expect("mavlink: failed to initialize zenoh");
-
     let telem_handles = telem::declare_all(&session, &mut router).await;
-
     let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
 
     control::origin::declare_origin_sub(&session, mav_handle.clone()).await;
-
-    control::movement::declare_all(&session, mav_handle).await;
+    control::movement::declare_all(&session, mav_handle.clone()).await;
+    control::reposition::declare_goto_waypoint_sub(&session, mav_handle.clone()).await;
 
     // profiler().await.ok();
 

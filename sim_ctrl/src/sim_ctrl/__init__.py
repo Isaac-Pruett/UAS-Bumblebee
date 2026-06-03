@@ -2,15 +2,15 @@ import math
 import os
 import time
 from time import sleep
+from types import NoneType
 
+import msgpack
 import zenoh
 from pynput import keyboard
 
 from sim_ctrl.motion import Movement
 
 pressed = set()
-
-NAME = os.environ.get("DRONE_NAME", "bingus")
 
 
 def on_press(key):
@@ -29,9 +29,15 @@ def on_release(key):
 
 def main():
     try:
-        session = zenoh.open(zenoh.Config().from_env())
+        fp = os.environ.get("ZENOH_CONFIG")
+        if fp is None:
+            raise zenoh.ZError("ZENOH_CONFIG not set")
+        cfg = zenoh.Config().from_file(fp)
+
     except zenoh.ZError:
-        session = zenoh.open(zenoh.Config())
+        cfg = zenoh.Config()
+
+    session = zenoh.open(cfg)
 
     listener = keyboard.Listener(
         on_press=on_press,
@@ -39,7 +45,9 @@ def main():
     )
     listener.start()
 
-    pub = session.declare_publisher(f"{NAME}/mavlink/control/move/flu/raw")
+    pub = session.declare_publisher("mavlink/control/move/flu/raw")
+
+    sub = session.declare_subscriber("mavlink/telemetry/pos/local/enu")
 
     sleep(0.5)
 
@@ -50,18 +58,20 @@ def main():
             yr = 0.0
 
             if "w" in pressed:
-                vy += 1.0
+                vy += 20.0
             if "a" in pressed:
-                vx -= 1.0
+                vx -= 20.0
             if "s" in pressed:
-                vy -= 1.0
+                vy -= 20.0
             if "d" in pressed:
-                vx += 1.0
+                vx += 20.0
 
             if "q" in pressed:
                 yr -= 1.0
+                print("q")
             if "e" in pressed:
                 yr += 1.0
+                print("e")
 
             pack = Movement(
                 x=math.nan,
@@ -78,6 +88,12 @@ def main():
                 yaw_rate=yr,
             )
             pub.put(pack.to_msgpack())
+
+            recvpack = sub.handler.try_recv()
+            if recvpack is not None:
+                pl = recvpack.payload.to_bytes()
+
+                # print(f"pos packet recv: {msgpack.unpackb(pl, raw=False)}")
 
             sleep(0.05)
 

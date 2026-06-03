@@ -11,7 +11,6 @@ use mavlink::dialects::common::{
 use crate::{
     connection::MavlinkHandle,
     packets::motion::{self, Movement},
-    topic_utils::topic,
 };
 
 pub async fn declare_movement_input_sub(
@@ -22,7 +21,7 @@ pub async fn declare_movement_input_sub(
     is_body_frame: bool,
 ) {
     session
-        .declare_subscriber(topic(endpoint))
+        .declare_subscriber(endpoint)
         .callback(move |sample| {
             let mavconn = mavconn.clone();
             let frame_conversion = frame_conversion.clone();
@@ -37,7 +36,7 @@ pub async fn declare_movement_input_sub(
                     if let Some(mut packet) = m.as_packet() {
                         packet.coordinate_frame = match is_body_frame {
                             false => MAV_FRAME_LOCAL_NED,
-                            true => MAV_FRAME_BODY_OFFSET_NED,
+                            true => mavlink::dialects::common::MavFrame::MAV_FRAME_BODY_OFFSET_NED, // different for PX4
                         };
                         let _res = mavconn
                             .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))

@@ -2,11 +2,11 @@
 use mavlink::dialects::common::{MavMessage, SET_GPS_GLOBAL_ORIGIN_DATA};
 use zenoh::Session;
 
-use crate::{connection::MavlinkHandle, packets::coords::Coords, topic_utils::topic};
+use crate::{connection::MavlinkHandle, packets::coords::Coords};
 
 pub async fn declare_origin_sub(session: &Session, mav_handle: MavlinkHandle) {
     session
-        .declare_subscriber(topic("origin/set"))
+        .declare_subscriber("origin/set")
         .callback(move |sample| {
             let mav_handle = mav_handle.clone();
             tokio::spawn(async move {

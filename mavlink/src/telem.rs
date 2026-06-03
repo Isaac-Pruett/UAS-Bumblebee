@@ -1,7 +1,7 @@
 use crate::connection::MavlinkRouter;
 use crate::packets::coords::Coords;
 use crate::packets::heartbeat::Heartbeat;
-use crate::topic_utils::topic;
+
 use glam::Vec3;
 use mavlink::dialects::common::MavMessage;
 use serde::Serialize;
@@ -23,7 +23,7 @@ pub async fn create_telem_topic_mpsc<T>(
 where
     T: Serialize + Send + 'static,
 {
-    let topic_name = topic(format!("telemetry/{sensor_name}").as_str());
+    let topic_name = String::new() + "telemetry/" + sensor_name;
 
     let publ = session
         .declare_publisher(topic_name.clone())
@@ -65,7 +65,7 @@ pub async fn create_telem_topic_watch<T>(
 where
     T: Serialize + Send + Sync + Clone + 'static,
 {
-    let topic_name = topic(format!("telemetry/{sensor_name}").as_str());
+    let topic_name = String::new() + "telemetry/" + sensor_name;
 
     let publ = session
         .declare_publisher(topic_name.clone())

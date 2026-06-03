@@ -62,7 +62,7 @@ impl Movement {
             | (bitnan(self.afx) << 6)
             | (bitnan(self.afy) << 7)
             | (bitnan(self.afz) << 8)
-            | (((!self.force_en) as u16) << 9)
+            | (((self.force_en) as u16) << 9)
             | (bitnan(self.yaw) << 10)
             | (bitnan(self.yaw_rate) << 11)
     }

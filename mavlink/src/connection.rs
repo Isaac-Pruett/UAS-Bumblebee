@@ -90,16 +90,8 @@ impl MavlinkRouter {
 // -------------------------------------------------------------------
 // MavlinkHandle — send arbitrary MavMessages back to the drone
 // -------------------------------------------------------------------
-#[derive(Clone)]
-pub struct MavlinkHandle {
-    tx: mpsc::Sender<MavMessage>,
-}
 
-impl MavlinkHandle {
-    pub async fn send(&self, msg: MavMessage) -> Result<(), mpsc::error::SendError<MavMessage>> {
-        self.tx.send(msg).await
-    }
-}
+pub type MavlinkHandle = mpsc::Sender<MavMessage>;
 
 // -------------------------------------------------------------------
 // Connect
@@ -130,7 +122,7 @@ pub fn setup_mavlink_task(
     println!("mavlink: INIT MAVLINK TASK");
 
     let (send_tx, mut send_rx) = mpsc::channel::<MavMessage>(128);
-    let handle = MavlinkHandle { tx: send_tx };
+    let handle = send_tx;
 
     let subscriptions = router.subscriptions;
 
