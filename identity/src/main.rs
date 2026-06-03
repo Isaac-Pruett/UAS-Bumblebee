@@ -7,9 +7,14 @@ pub static DRONE_NAME: OnceLock<String> = OnceLock::new();
 async fn main() {
     let config_path = std::env::var("ZENOH_CONFIG").expect("ZENOH_CONFIG not set");
     let mut cfg = zenoh::Config::from_file(&config_path).expect("failed to load ZENOH_CONFIG file");
+
     let namespace = cfg
         .get_json("namespace")
-        .expect("IDENTITY: no namespace was set!");
+        .expect("IDENTITY: no namespace was set!")
+        .trim_matches('"')
+        .trim_matches('/')
+        .to_string();
+
     let updated_namespace = namespace + "/identity";
     cfg.insert_json5("namespace", updated_namespace.as_str())
         .expect("IDENTITY: failed to set session namespace!");
