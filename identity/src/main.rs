@@ -15,17 +15,17 @@ async fn main() {
         .trim_matches('/')
         .to_string();
 
-    let updated_namespace = namespace + "/identity";
-    cfg.insert_json5("namespace", updated_namespace.as_str())
+    let updated_namespace = format!("{namespace}/identity");
+
+    DRONE_NAME.get_or_init(|| {
+        println!("Set drone name to: {namespace}!");
+        namespace
+    });
+
+    cfg.insert_json5("namespace", &format!("{updated_namespace:?}"))
         .expect("IDENTITY: failed to set session namespace!");
 
     let session = zenoh::open(cfg).await.expect("failed to initialize zenoh");
-
-    DRONE_NAME.get_or_init(|| {
-        let name = std::env::var("DRONE_NAME").expect("!!!   THIS DRONE WAS NOT NAMED   !!!");
-        println!("Set drone name to: {name}!");
-        name
-    });
 
     session
         .declare_queryable("whoami")

@@ -4,8 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    rust-demo-sub.url = "./rust_demo";
-    python-demo-sub.url = "./python_demo";
 
     mavlink.url = "./mavlink";
 
@@ -52,13 +50,13 @@
           # - pkgs is an instance of nixpkgs for your specific system
           # - system is the system this configuration is for
 
-          # This is equivalent to packages.<system>.default
+          drone_name = "bingus_the_drone";
 
           # Generate shared Zenoh config (customize as needed; could derive from template)
           sharedConfig = pkgs.writeText "zenoh-config.json5" ''
             {
               mode: "client",
-              namespace: "bingus",
+              namespace: "${drone_name}",
               connect: {
                 endpoints: ["tcp/127.0.0.1:7447"]
               },
@@ -111,38 +109,6 @@
               cargoHash = "sha256-Ik72sGNDeMh+YNWloErhFx+YLYHMEZ1aWBWmKWYUQNg=";
             };
 
-            # Launcher: Spins up all with shared config
-            demo = pkgs.writeShellApplication {
-              name = "demo-ping-pong-zenoh";
-              runtimeInputs = [
-                self'.packages.rust_demo
-                self'.packages.python_demo
-
-                self'.packages.zenohd
-
-              ];
-              text = ''
-                export ZENOH_CONFIG=${sharedConfig}
-
-                echo "Launching with shared config: $ZENOH_CONFIG"
-
-                zenohd -c ${routerCfg} 1>/dev/null &
-                ZENOH_PID=$!
-
-                sleep 0.5
-
-                python_demo &
-                PYTHON_PID=$!
-
-                rust_demo &
-                RUST_PID=$!
-
-                trap 'kill $PYTHON_PID $RUST_PID 2>/dev/null' EXIT INT TERM
-
-                wait $PYTHON_PID $RUST_PID
-              '';
-            };
-
             dev = pkgs.writeShellApplication {
               name = "execUAS";
               runtimeInputs = [
@@ -152,9 +118,9 @@
 
                 self'.packages.zenohd
               ];
+
               text = ''
                 export ZENOH_CONFIG=${sharedConfig}
-                export DRONE_NAME=bingus
                 echo "Launching with shared config: $ZENOH_CONFIG"
 
                 PIDS=()
@@ -178,7 +144,7 @@
 
           devShells.default = pkgs.mkShell {
             packages = [
-              self'.packages.demo
+
               self'.packages.zenohd
               self'.packages.dev
               pkgs.just
@@ -186,6 +152,7 @@
               self'.packages.nuze
 
             ];
+            env.DRONE_NAME = drone_name;
             env.ZENOH_CONFIG = sharedConfig;
 
             shellHook = ''
