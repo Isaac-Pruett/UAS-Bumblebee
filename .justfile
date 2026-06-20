@@ -55,7 +55,7 @@ setup-sitl: clone-ardupilot
         UV_VENV_CLEAR=1 uv venv .venv --python 3.12 && \
         uv pip install {{ SITL_DEPS }}
 
-sitl: setup-sitl
+sitl:
     @cd {{ ARDUPILOT_DIR }} && \
         uv run python Tools/autotest/sim_vehicle.py -v {{ VEHICLE }} {{ SITL_ARGS }}
 

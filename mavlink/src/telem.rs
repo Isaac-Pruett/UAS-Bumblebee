@@ -3,13 +3,16 @@ use crate::packets::coords::Coords;
 use crate::packets::heartbeat::Heartbeat;
 
 use glam::Vec3;
-use mavlink::dialects::common::MavMessage;
+use mavlink::dialects::common::{MavAutopilot, MavMessage, MavType};
 use serde::Serialize;
+use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use zenoh::Session;
 use zenoh::qos::Priority;
+
+pub static AUTOPILOT: OnceLock<MavAutopilot> = OnceLock::new();
 
 /// Spawn a Zenoh publisher that drains a typed mpsc channel.
 /// Use for topics where every message matters (e.g. heartbeat).
@@ -108,9 +111,16 @@ pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<J
 
     // mpsc: every heartbeat event matters
     let heartbeat_rx = router.subscribe(move |msg| match msg {
-        MavMessage::HEARTBEAT(_) => Some(Heartbeat {
-            elapsed_us: start.elapsed().as_micros(),
-        }),
+        MavMessage::HEARTBEAT(data) => {
+            let res = AUTOPILOT.set(data.autopilot);
+            if res.is_ok() {
+                println!("mavlink: SET AUTOPILOT TO {:?}", data.autopilot)
+            }
+
+            Some(Heartbeat {
+                elapsed_us: start.elapsed().as_micros(),
+            })
+        }
         _ => None,
     });
 

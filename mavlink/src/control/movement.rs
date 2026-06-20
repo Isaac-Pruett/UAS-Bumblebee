@@ -1,16 +1,14 @@
 use std::sync::Arc;
 
 use mavlink::dialects::common::{
-    MavFrame::{
-        self, MAV_FRAME_BODY_FRD, MAV_FRAME_BODY_OFFSET_NED, MAV_FRAME_LOCAL_NED,
-        MAV_FRAME_LOCAL_OFFSET_NED,
-    },
-    MavMessage,
+    MavAutopilot::{MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_AUTOPILOT_PX4},
+    MavFrame, MavMessage,
 };
 
 use crate::{
     connection::MavlinkHandle,
     packets::motion::{self, Movement},
+    telem::AUTOPILOT,
 };
 
 pub async fn declare_movement_input_sub(
@@ -34,9 +32,16 @@ pub async fn declare_movement_input_sub(
                     frame_conversion(&mut m);
 
                     if let Some(mut packet) = m.as_packet() {
-                        packet.coordinate_frame = match is_body_frame {
-                            false => MAV_FRAME_LOCAL_NED,
-                            true => mavlink::dialects::common::MavFrame::MAV_FRAME_BODY_OFFSET_NED, // different for PX4
+                        packet.coordinate_frame = if is_body_frame {
+                            match AUTOPILOT.get() {
+                                Some(MAV_AUTOPILOT_PX4) => MavFrame::MAV_FRAME_BODY_NED,
+                                Some(MAV_AUTOPILOT_ARDUPILOTMEGA) => {
+                                    MavFrame::MAV_FRAME_BODY_OFFSET_NED
+                                }
+                                _ => MavFrame::MAV_FRAME_BODY_OFFSET_NED,
+                            }
+                        } else {
+                            MavFrame::MAV_FRAME_LOCAL_NED
                         };
                         let _res = mavconn
                             .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))

@@ -5,7 +5,7 @@ use crate::{connection::MavlinkHandle, packets::waypoint::Waypoint};
 
 pub async fn declare_goto_waypoint_sub(session: &zenoh::Session, mavconn: MavlinkHandle) {
     session
-        .declare_subscriber("control/move/goto_coord")
+        .declare_subscriber("control/move/global/waypoint")
         .callback(move |sample| {
             let bytes = sample.payload().to_bytes();
             let res_decode = rmp_serde::from_slice::<Waypoint>(&bytes);
