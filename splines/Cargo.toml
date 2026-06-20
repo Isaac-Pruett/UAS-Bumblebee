@@ -1,5 +1,5 @@
 [package]
-name = "motion_controller"
+name = "splines"
 version = "0.1.0"
 edition = "2024"
 
@@ -15,5 +15,5 @@ zenoh = {version = ">=1.9", features = ["shared-memory"]}
 zenoh-ext = ">=1.9"
 
 [[bin]]
-name = "motion_controller"
+name = "splines"
 path = "src/main.rs"

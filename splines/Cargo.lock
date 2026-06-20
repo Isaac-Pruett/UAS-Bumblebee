@@ -1353,20 +1353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "motion_controller"
-version = "0.1.0"
-dependencies = [
- "ctrlc",
- "flatbuffers",
- "glam",
- "rmp-serde",
- "serde",
- "tokio",
- "zenoh",
- "zenoh-ext",
-]
-
-[[package]]
 name = "nanorand"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2598,6 +2584,20 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "splines"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "flatbuffers",
+ "glam",
+ "rmp-serde",
+ "serde",
+ "tokio",
+ "zenoh",
+ "zenoh-ext",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 {
-  description = "motion_controller — Rust Zenoh Node";
+  description = "splines — Rust Zenoh Node";
 
   inputs = {
     flake-parts = {
@@ -50,7 +50,7 @@
         in
         naersk-lib.buildPackage {
           src = ./.;
-          pname = "motion_controller";
+          pname = "splines";
           nativeBuildInputs = [ pkgs.git ];
         };
     };
