@@ -11,6 +11,7 @@
 
     rust-overlay.url = "github:oxalica/rust-overlay";
 
+
   };
 
   outputs = { flake-parts, ... } @ inputs: flake-parts.lib.mkFlake { inherit inputs; } {
@@ -45,6 +46,8 @@
           };
         in
         naersk-lib.buildPackage {
+          PWM_ACTUATORS_PER_PAGE = "6";
+
           src = ./.;
           pname = "mavlink";
           nativeBuildInputs = [ pkgs.git ];

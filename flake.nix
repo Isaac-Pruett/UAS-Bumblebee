@@ -149,7 +149,7 @@
               self'.packages.dev
               pkgs.just
               pkgs.uv
-              self'.packages.nuze
+              # self'.packages.nuze
 
             ];
             env.DRONE_NAME = drone_name;

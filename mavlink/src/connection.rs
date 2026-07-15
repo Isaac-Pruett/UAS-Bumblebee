@@ -121,8 +121,7 @@ pub fn setup_mavlink_task(
 ) -> (MavlinkHandle, JoinHandle<()>) {
     println!("mavlink: INIT MAVLINK TASK");
 
-    let (send_tx, mut send_rx) = mpsc::channel::<MavMessage>(128);
-    let handle = send_tx;
+    let (handle, mut send_rx) = mpsc::channel::<MavMessage>(128);
 
     let subscriptions = router.subscriptions;
 
