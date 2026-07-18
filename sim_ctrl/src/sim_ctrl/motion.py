@@ -2,10 +2,10 @@ import math
 from dataclasses import asdict, dataclass
 
 import msgpack
+import msgspec
 
 
-@dataclass
-class Movement:
+class Movement(msgspec.Struct, array_like=True):
     x: float
     y: float
     z: float
@@ -21,16 +21,6 @@ class Movement:
 
     yaw: float
     yaw_rate: float
-
-    def to_msgpack(self) -> bytes | None:
-        v = msgpack.packb(asdict(self), use_bin_type=True)
-        if v is not None:
-            return v
-
-    @staticmethod
-    def from_msgpack(data: bytes) -> "Movement":
-        obj = msgpack.unpackb(data, raw=False)
-        return Movement(**obj)
 
 
 def bitnan(value: float) -> int:

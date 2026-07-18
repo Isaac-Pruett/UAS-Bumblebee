@@ -1,4 +1,7 @@
-use crate::motion_task::{MotionProfile, MotionType, Movement};
+use crate::{
+    motion_task::{MotionProfile, MotionType, Movement},
+    splines::BezierN,
+};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -16,9 +19,6 @@ struct MotionPacket {
 }
 
 impl SplineGeneratorProxy {
-    // Takes an owned Session (zenoh's Session is cheap to clone — it's
-    // a handle around shared internal state) so the publisher and the
-    // subscriber callbacks can be 'static.
     pub async fn new(session: Session, frame: &str) -> Arc<Mutex<Self>> {
         let publ = session
             .declare_publisher(format!("mavlink/control/move/{frame}/raw"))

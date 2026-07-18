@@ -64,75 +64,104 @@ fn bezier(points: &[Vec3], t: f32) -> Vec3 {
     bezier(&next, t)
 }
 
-// get the cost from tangent vector at point i in points
-#[inline]
-fn vec_from_cost_at_idx(points: &[Vec3], i: usize, cost_mode: BezierCostMode) -> Vec3 {
-    assert!(points.len() >= 2);
-    match cost_mode {
-        BezierCostMode::UNIFORM => tangent_at_energy(points, i),
-        BezierCostMode::VELOCITY => tangent_at_velo(points, i),
-
-        BezierCostMode::TENSIONED(t) => tangent_at_tension(points, i, t),
-    }
+pub struct Spline {
+    curves: Vec<BezierN>,
+    passthrus: Vec<Vec3>,
+    pub points: Vec<Vec3>,
 }
 
-//energy
-#[inline]
-fn tangent_at_energy(points: &[Vec3], i: usize) -> Vec3 {
-    if i == 0 {
-        points[1] - points[0]
-    } else if i == points.len() - 1 {
-        points[i] - points[i - 1]
-    } else {
-        (points[i + 1] - points[i - 1]) * 0.5
-    }
-}
+impl Spline {
+    pub fn new(waypoints: Vec<Vec3>, energy_to_speed: f32, resolution: u32) -> Self {
+        let curves = Spline::build_spline(&waypoints, BezierCostMode::TENSIONED(energy_to_speed));
 
-//velo
-#[inline]
-fn tangent_at_velo(points: &[Vec3], i: usize) -> Vec3 {
-    if i == 0 {
-        points[1] - points[0]
-    } else if i == points.len() - 1 {
-        points[i] - points[i - 1]
-    } else {
-        let prev = points[i] - points[i - 1];
-        let next = points[i + 1] - points[i];
+        let mut interpolated = Vec::new();
+        for curve in &curves {
+            let p = curve.interp(resolution);
+            interpolated.extend(p);
+        }
 
-        let dir = (prev.normalize_or_zero() + next.normalize_or_zero()).normalize_or_zero();
-        let speed = (prev.length() + next.length()) * 0.5;
-
-        dir * speed
-    }
-}
-
-#[inline]
-fn tangent_at_tension(points: &[Vec3], i: usize, tension: f32) -> Vec3 {
-    let energy = tangent_at_energy(points, i);
-    let velo = tangent_at_velo(points, i);
-
-    energy.lerp(velo, tension.clamp(0.0, 1.0))
-}
-
-fn cubic_from_tangents(p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3) -> BezierN {
-    BezierN::new(p0, vec![p0 + v0 / 3.0, p1 - v1 / 3.0], p1)
-}
-
-pub fn build_spline(points: &[Vec3], cost_mode: BezierCostMode) -> Vec<BezierN> {
-    if points.len() < 2 {
-        return Vec::new();
+        Spline {
+            curves,
+            passthrus: waypoints,
+            points: interpolated,
+        }
     }
 
-    let mut curves = Vec::new();
+    // get the cost from tangent vector at point i in points
+    #[inline]
+    fn vec_from_cost_at_idx(points: &[Vec3], i: usize, cost_mode: BezierCostMode) -> Vec3 {
+        assert!(points.len() >= 2);
+        match cost_mode {
+            BezierCostMode::UNIFORM => Spline::tangent_at_energy(points, i),
+            BezierCostMode::VELOCITY => Spline::tangent_at_velo(points, i),
 
-    for i in 0..points.len() - 1 {
-        let v0 = vec_from_cost_at_idx(points, i, cost_mode);
-        let v1 = vec_from_cost_at_idx(points, i + 1, cost_mode);
-
-        curves.push(cubic_from_tangents(points[i], points[i + 1], v0, v1));
+            BezierCostMode::TENSIONED(t) => Spline::tangent_at_tension(points, i, t),
+        }
     }
 
-    curves
+    //energy
+    #[inline]
+    fn tangent_at_energy(points: &[Vec3], i: usize) -> Vec3 {
+        if i == 0 {
+            points[1] - points[0]
+        } else if i == points.len() - 1 {
+            points[i] - points[i - 1]
+        } else {
+            (points[i + 1] - points[i - 1]) * 0.5
+        }
+    }
+
+    //velo
+    #[inline]
+    fn tangent_at_velo(points: &[Vec3], i: usize) -> Vec3 {
+        if i == 0 {
+            points[1] - points[0]
+        } else if i == points.len() - 1 {
+            points[i] - points[i - 1]
+        } else {
+            let prev = points[i] - points[i - 1];
+            let next = points[i + 1] - points[i];
+
+            let dir = (prev.normalize_or_zero() + next.normalize_or_zero()).normalize_or_zero();
+            let speed = (prev.length() + next.length()) * 0.5;
+
+            dir * speed
+        }
+    }
+
+    #[inline]
+    fn tangent_at_tension(points: &[Vec3], i: usize, tension: f32) -> Vec3 {
+        let energy = Spline::tangent_at_energy(points, i);
+        let velo = Spline::tangent_at_velo(points, i);
+
+        energy.lerp(velo, tension.clamp(0.0, 1.0))
+    }
+
+    fn cubic_from_tangents(p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3) -> BezierN {
+        BezierN::new(p0, vec![p0 + v0 / 3.0, p1 - v1 / 3.0], p1)
+    }
+
+    pub fn build_spline(points: &[Vec3], cost_mode: BezierCostMode) -> Vec<BezierN> {
+        if points.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut curves = Vec::new();
+
+        for i in 0..points.len() - 1 {
+            let v0 = Spline::vec_from_cost_at_idx(points, i, cost_mode);
+            let v1 = Spline::vec_from_cost_at_idx(points, i + 1, cost_mode);
+
+            curves.push(Spline::cubic_from_tangents(
+                points[i],
+                points[i + 1],
+                v0,
+                v1,
+            ));
+        }
+
+        curves
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

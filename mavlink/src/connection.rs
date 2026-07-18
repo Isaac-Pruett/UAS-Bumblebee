@@ -1,9 +1,16 @@
 use std::time::Duration;
 
-use mavlink::{AsyncMavConnection, MavlinkVersion, dialects::common::MavMessage};
+use mavlink::{
+    AsyncMavConnection, MavlinkVersion,
+    dialects::common::{MavCmd, MavMessage},
+};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{
+        mpsc::{self, error::TryRecvError},
+        watch::{self},
+    },
     task::JoinHandle,
+    time::Instant,
 };
 
 type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
@@ -182,4 +189,53 @@ pub fn setup_mavlink_task(
     });
 
     (handle, task)
+}
+
+pub struct MavlinkAckRouter {
+    cmd_type: MavCmd,
+    rx: mpsc::Receiver<MavMessage>,
+}
+
+impl MavlinkAckRouter {
+    pub fn new(router: &mut MavlinkRouter, cmd: MavCmd) -> Self {
+        let rx = router.subscribe(move |msg| match msg {
+            MavMessage::COMMAND_ACK(data) if data.command == cmd => Some(msg.clone()),
+            _ => None,
+        });
+        MavlinkAckRouter {
+            cmd_type: cmd,
+            rx: rx,
+        }
+    }
+    pub async fn wait_ack(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<mavlink::dialects::common::MavResult, TryRecvError> {
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            match self.rx.try_recv() {
+                Ok(MavMessage::COMMAND_ACK(data)) => {
+                    return Ok(data.result);
+                }
+
+                Ok(_) => {
+                    // Should not happen if router filter is correct.
+                    continue;
+                }
+
+                Err(TryRecvError::Empty) => {
+                    if Instant::now() >= deadline {
+                        return Err(TryRecvError::Empty);
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+
+                Err(TryRecvError::Disconnected) => {
+                    return Err(TryRecvError::Disconnected);
+                }
+            }
+        }
+    }
 }

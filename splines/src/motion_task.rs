@@ -4,7 +4,7 @@ use zenoh::pubsub::Publisher;
 
 use crate::{
     motion_task::MotionType::{CONTINUOUS, FINE},
-    splines::{self, BezierCostMode},
+    splines::{self},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,15 +34,7 @@ impl Movement {
             CONTINUOUS {
                 resolution,
                 tension,
-            } => {
-                let bezs =
-                    splines::build_spline(targets.as_slice(), BezierCostMode::TENSIONED(*tension));
-                let mut v = Vec::<Vec3>::new();
-                for c in &bezs {
-                    v.extend(c.interp(*resolution));
-                }
-                v
-            }
+            } => splines::Spline::new(targets, *tension, *resolution).points,
         };
 
         Self {
@@ -53,15 +45,27 @@ impl Movement {
         }
     }
 
-    pub fn append(&mut self, other: Self) -> Self {
-        self.points.extend(other.points);
-        Self {
-            task: None,
-            points: self.points.clone(),
-            pipe_radius_m: self.pipe_radius_m.max(other.pipe_radius_m),
-            max_speed_m_s: self.max_speed_m_s.max(other.max_speed_m_s),
-        }
+    // pub fn append(&mut self, other: Self) -> Self {
+    //     self.points.extend(other.points);
+    //     Self {
+    //         task: None,
+    //         points: self.points.clone(),
+    //         pipe_radius_m: self.pipe_radius_m.max(other.pipe_radius_m),
+    //         max_speed_m_s: self.max_speed_m_s.max(other.max_speed_m_s),
+    //     }
+    // }
+
+    pub fn start(&mut self) {
+        self.task = Some(tokio::spawn(async move {
+            for point in &self.points {
+                let _ = p.send(point.clone());
+            }
+        }));
     }
 
-    pub fn broadcast(self, p: Publisher) {}
+    pub fn cancel(self) {
+        if let Some(task) = self.task {
+            task.abort();
+        }
+    }
 }

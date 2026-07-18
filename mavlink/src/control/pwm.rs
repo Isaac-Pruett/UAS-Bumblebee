@@ -119,7 +119,7 @@ pub async fn register_all_pwm_subs(
     for i in 0..*ACTUATOR_COUNT {
         let handle = handle.clone();
         let mut p = PwmController::new(i, handle, session).await;
-        p.bind_watcher(watchers[i as usize].clone());
+        p.bind_watcher(watchers[i as usize].clone()).await;
         v.push(p);
     }
 

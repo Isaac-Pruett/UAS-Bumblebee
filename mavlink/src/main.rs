@@ -41,6 +41,14 @@ async fn main() {
     let mut router = MavlinkRouter::new();
     let telem_handles = telem::declare_all(&session, &mut router).await;
     let pwm_state = control::pwm::register_pwm_watchers(&mut router).await;
+    let launch_ack_channel = connection::MavlinkAckRouter::new(
+        &mut router,
+        mavlink::dialects::common::MavCmd::MAV_CMD_NAV_TAKEOFF,
+    );
+    let land_ack_channel = connection::MavlinkAckRouter::new(
+        &mut router,
+        mavlink::dialects::common::MavCmd::MAV_CMD_NAV_LAND,
+    );
 
     let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
 
@@ -48,7 +56,13 @@ async fn main() {
     control::movement::declare_all(&session, mav_handle.clone()).await;
     control::reposition::declare_goto_waypoint_sub(&session, mav_handle.clone()).await;
 
-    control::launch_land::register_launch(&session, &mav_handle.clone()).await;
+    control::launch_land::register_launch_land(
+        &session,
+        &mav_handle.clone(),
+        launch_ack_channel,
+        land_ack_channel,
+    )
+    .await;
 
     control::pwm::register_all_pwm_subs(&session, mav_handle.clone(), pwm_state).await;
     // profiler().await.ok();

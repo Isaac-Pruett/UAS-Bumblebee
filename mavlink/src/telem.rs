@@ -1,13 +1,14 @@
 use crate::connection::MavlinkRouter;
+use crate::control::movement;
 use crate::packets::coords::Coords;
 use crate::packets::heartbeat::Heartbeat;
 
 use glam::Vec3;
-use mavlink::dialects::common::{MavAutopilot, MavMessage, MavType};
+use mavlink::dialects::common::{MavAutopilot, MavMessage, MavModeFlag, MavType};
 use serde::Serialize;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use std::time::Instant;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 use zenoh::Session;
 use zenoh::qos::Priority;
@@ -103,6 +104,31 @@ where
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutopilotMode {
+    pub armed: bool,
+    pub mode: FlightMode,
+}
+
+impl AutopilotMode {
+    #[inline]
+    pub fn can_fly(&self) -> bool {
+        self.armed && matches!(self.mode, FlightMode::Guided | FlightMode::Offboard)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlightMode {
+    Manual,
+    Stabilize,
+    Guided,   // ArduPilot
+    Offboard, // PX4
+    Auto,
+    Unknown,
+}
+
+pub static AUTOPILOT_MODE: LazyLock<RwLock<Option<AutopilotMode>>> =
+    LazyLock::new(|| RwLock::new(None));
 /// Register all telemetry subscriptions and spawn their publisher tasks.
 /// Must be called before `setup_mavlink_task` consumes the router.
 /// Returns all JoinHandles so the caller can await them for shutdown.
@@ -116,6 +142,52 @@ pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<J
             if res.is_ok() {
                 println!("mavlink: SET AUTOPILOT TO {:?}", data.autopilot)
             }
+
+            let base_mode = data.base_mode;
+            let custom_mode = data.custom_mode;
+            let autopilot = data.autopilot;
+
+            tokio::spawn(async move {
+                let mut mode = AUTOPILOT_MODE.write().await;
+
+                *mode = Some(AutopilotMode {
+                    armed: base_mode.contains(MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED),
+
+                    mode: match autopilot {
+                        MavAutopilot::MAV_AUTOPILOT_PX4 => {
+                            let main_mode = ((custom_mode >> 16) & 0xFF) as u8;
+
+                            match main_mode {
+                                1 => FlightMode::Manual,
+                                7 => FlightMode::Stabilize,
+                                6 => FlightMode::Offboard,
+                                4 => FlightMode::Auto,
+                                _ => FlightMode::Unknown,
+                            }
+                        }
+
+                        MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA => {
+                            if base_mode.contains(MavModeFlag::MAV_MODE_FLAG_GUIDED_ENABLED) {
+                                FlightMode::Guided // order matters specifically here
+                            } else if base_mode
+                                .contains(MavModeFlag::MAV_MODE_FLAG_STABILIZE_ENABLED)
+                            {
+                                FlightMode::Stabilize
+                            } else if base_mode
+                                .contains(MavModeFlag::MAV_MODE_FLAG_MANUAL_INPUT_ENABLED)
+                            {
+                                FlightMode::Manual
+                            } else if base_mode.contains(MavModeFlag::MAV_MODE_FLAG_AUTO_ENABLED) {
+                                FlightMode::Auto // order matters specifically here
+                            } else {
+                                FlightMode::Unknown
+                            }
+                        }
+
+                        _ => FlightMode::Unknown,
+                    },
+                });
+            });
 
             Some(Heartbeat {
                 elapsed_us: start.elapsed().as_micros(),

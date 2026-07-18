@@ -1,10 +1,13 @@
 import math
 import os
-import time
+from ast import Subscript
+from base64 import decode
 from time import sleep
 from types import NoneType
 
 import msgpack
+import msgspec
+import msgspec.msgpack
 import zenoh
 from pynput import keyboard
 
@@ -27,6 +30,13 @@ def on_release(key):
         pass
 
 
+def collect_pos(sub: zenoh.Subscriber) -> tuple[float, float, float] | None:
+    recvpack = sub.handler.try_recv()
+    if recvpack is not None:
+        pl = recvpack.payload.to_bytes()
+        return msgspec.msgpack.decode(pl)
+
+
 def main():
     try:
         fp = os.environ.get("ZENOH_CONFIG")
@@ -47,6 +57,8 @@ def main():
 
     pub = session.declare_publisher("mavlink/control/move/flu/raw")
 
+    land_pub = session.declare_publisher("mavlink/control/move/land")
+
     sub = session.declare_subscriber("mavlink/telemetry/pos/local/enu")
 
     sleep(0.5)
@@ -56,6 +68,50 @@ def main():
             vx = 0.0
             vy = 0.0
             yr = 0.0
+
+            if "l" in pressed:
+                cmd = {
+                    "height_m": 10.0,
+                    "yaw": 0.0,
+                }
+
+                print("Querying launch")
+                payload = msgpack.packb(cmd, use_bin_type=True)
+
+                replies = session.get(
+                    "mavlink/control/move/launch",
+                    payload=payload,
+                    timeout=1.0,
+                )
+
+                errors = [
+                    msgspec.msgpack.decode(reply.err.payload.to_bytes())
+                    for reply in replies
+                    if reply.err is not None
+                ]
+
+                if 0b1 not in errors:  # CantFlyError
+                    optional_tuple = collect_pos(sub)
+                    x, y, z = (0, 0, 0)
+                    while (optional_tuple is None) or z < (10.0 - 0.3):
+                        optional_tuple = collect_pos(sub)
+                        if optional_tuple is not None:
+                            x, y, z = optional_tuple
+                            print(f"x = {x}, y = {y}, z = {z}")
+
+                        pass
+
+            if "o" in pressed:
+                cmd = {
+                    "coords": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": -2.0,
+                    },
+                    "descend_speed_m_s": 3.0,
+                    "acceptance_rad_m": 2.0,
+                    "yaw": 0.0,
+                }
 
             if "w" in pressed:
                 vy += 20.0
@@ -68,10 +124,9 @@ def main():
 
             if "q" in pressed:
                 yr -= 1.0
-                print("q")
+
             if "e" in pressed:
                 yr += 1.0
-                print("e")
 
             pack = Movement(
                 x=math.nan,
@@ -87,13 +142,9 @@ def main():
                 yaw=math.nan,
                 yaw_rate=yr,
             )
-            pub.put(pack.to_msgpack())
+            pub.put(msgspec.msgpack.encode(pack))
 
-            recvpack = sub.handler.try_recv()
-            if recvpack is not None:
-                pl = recvpack.payload.to_bytes()
-
-                # print(f"pos packet recv: {msgpack.unpackb(pl, raw=False)}")
+            # print(f"pos packet recv: {msgpack.unpackb(pl, raw=False)}")
 
             sleep(0.05)
 
