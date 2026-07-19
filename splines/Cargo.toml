@@ -21,7 +21,7 @@ viz = ["macroquad"]
 
 [[bin]]
 name = "spline_viewer"
-path = "src/bin/spline_viewer.rs"
+path = "src/spline_viewer.rs"
 required-features = ["viz"]
 
 [[bin]]

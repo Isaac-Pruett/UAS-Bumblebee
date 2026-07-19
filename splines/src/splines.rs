@@ -94,14 +94,21 @@ impl Spline {
     pub fn curvatures(&self) -> Vec<f32> {
         let pts = &self.points;
         let n = pts.len();
+
         if n < 3 {
             return vec![0.0; n];
         }
 
         let mut out = vec![0.0; n];
+
         for i in 1..n - 1 {
-            out[i] = Spline::curvature_at(pts[i - 1], pts[i], pts[i + 1]);
+            out[i] = Self::curvature_at(pts[i - 1], pts[i], pts[i + 1]);
         }
+
+        // One-sided approximations for the endpoints.
+        out[0] = Self::curvature_at(pts[0], pts[1], pts[2]);
+        out[n - 1] = Self::curvature_at(pts[n - 3], pts[n - 2], pts[n - 1]);
+
         out
     }
 
@@ -123,13 +130,22 @@ impl Spline {
     /// Per-point speed cap derived from curvature and a lateral acceleration
     /// limit, itself derived from pipe_radius_m and max_speed_m_s: tighter
     /// pipes imply gentler lateral kicks are wanted through turns.
-    pub fn speed_limits(&self, pipe_radius_m: f32, max_speed_m_s: f32) -> Vec<f32> {
-        // Heuristic: allow up to ~1 "pipe radius worth" of lateral accel per
-        // second^2 at max speed, scaled down for smaller pipes. Tune the
-        // constant below once you have real hardware numbers.
-        let lateral_accel_max = (pipe_radius_m * max_speed_m_s).max(0.1);
+    pub fn speed_limits(
+        &self,
+        pipe_radius_m: f32,
+        max_speed_m_s: f32,
+        longitudinal_accel_m_s2: f32,
+    ) -> Vec<f32> {
+        let n = self.points.len();
+        if n == 0 {
+            return Vec::new();
+        }
 
-        self.curvatures()
+        let lateral_accel_max = (pipe_radius_m * max_speed_m_s).max(0.1);
+        let accel = longitudinal_accel_m_s2.max(0.0);
+
+        let mut limits: Vec<f32> = self
+            .curvatures()
             .into_iter()
             .map(|k| {
                 if k < 1e-6 {
@@ -138,7 +154,28 @@ impl Spline {
                     (lateral_accel_max / k).sqrt().min(max_speed_m_s)
                 }
             })
-            .collect()
+            .collect();
+
+        // Forward pass: limits acceleration from point i - 1 to point i.
+        for i in 1..n {
+            let distance = self.points[i].distance(self.points[i - 1]);
+
+            // v1^2 = v0^2 + 2*a*distance
+            let reachable = (limits[i - 1].powi(2) + 2.0 * accel * distance).sqrt();
+
+            limits[i] = limits[i].min(reachable);
+        }
+
+        // Backward pass: ensures enough distance to slow down for upcoming turns.
+        for i in (0..n - 1).rev() {
+            let distance = self.points[i + 1].distance(self.points[i]);
+
+            let reachable = (limits[i + 1].powi(2) + 2.0 * accel * distance).sqrt();
+
+            limits[i] = limits[i].min(reachable);
+        }
+
+        limits
     }
 
     // get the cost from tangent vector at point i in points

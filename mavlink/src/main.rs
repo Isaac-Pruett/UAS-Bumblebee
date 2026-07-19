@@ -39,7 +39,9 @@ async fn main() {
     let mavconn = mav_connect(&mavlink_conn_str).await;
 
     let mut router = MavlinkRouter::new();
-    let telem_handles = telem::declare_all(&session, &mut router).await;
+    let telem_handles = telem::declare_all(&session, &mut router)
+        .await
+        .expect("Failed to initialize telemetry!");
     let pwm_state = control::pwm::register_pwm_watchers(&mut router).await;
     let launch_ack_channel = connection::MavlinkAckRouter::new(
         &mut router,

@@ -55,7 +55,8 @@ pub async fn register_launch(
                     if let Some(launch) = launch {
                         if AUTOPILOT_MODE
                             .read()
-                            .await
+                            .ok()
+                            .and_then(|guard| *guard)
                             .as_ref()
                             .is_some_and(|mode| mode.can_fly())
                         {
@@ -159,7 +160,8 @@ async fn register_land(session: &Session, handle: &MavlinkHandle, ack_router: Ma
                 if let Some(land_cmd) = land_cmd {
                     if  AUTOPILOT_MODE
                         .read()
-                        .await
+                        .ok()
+                        .and_then(|guard| *guard)
                         .as_ref()
                         .is_some_and(|mode| mode.can_fly()) {
                             handle.send(MavMessage::COMMAND_INT(

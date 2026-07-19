@@ -4,7 +4,7 @@ use mavlink::dialects::common::{PositionTargetTypemask, SET_POSITION_TARGET_LOCA
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct State {
+pub struct LocalFrameWaypoint {
     pub x: f32,
     pub y: f32,
     pub z: f32,
@@ -22,7 +22,7 @@ pub struct State {
     pub yaw_rate: f32,
 }
 
-impl State {
+impl LocalFrameWaypoint {
     pub fn as_packet(&self) -> Option<SET_POSITION_TARGET_LOCAL_NED_DATA> {
         let f = self.flag();
         // println!("MASK: {}", format!("0x{:04X}", f));
@@ -80,15 +80,15 @@ fn clean(i: f32) -> f32 {
 }
 
 #[inline]
-pub fn ned_all(_: &mut State) {}
+pub fn ned_all(_: &mut LocalFrameWaypoint) {}
 
 #[inline]
-pub fn rfu_all(m: &mut State) {
+pub fn rfu_all(m: &mut LocalFrameWaypoint) {
     enu_all(m);
 }
 
 #[inline]
-pub fn enu_all(m: &mut State) {
+pub fn enu_all(m: &mut LocalFrameWaypoint) {
     let t = m.clone();
 
     m.x = t.y;
@@ -105,7 +105,7 @@ pub fn enu_all(m: &mut State) {
 }
 
 #[inline]
-pub fn nan_vel(m: &mut State) {
+pub fn nan_vel(m: &mut LocalFrameWaypoint) {
     m.vx = f32::NAN;
     m.vy = f32::NAN;
     m.vz = f32::NAN;
@@ -113,14 +113,14 @@ pub fn nan_vel(m: &mut State) {
 }
 
 #[inline]
-pub fn nan_acc(m: &mut State) {
+pub fn nan_acc(m: &mut LocalFrameWaypoint) {
     m.afx = f32::NAN;
     m.afy = f32::NAN;
     m.afz = f32::NAN;
 }
 
 #[inline]
-pub fn nan_pos(m: &mut State) {
+pub fn nan_pos(m: &mut LocalFrameWaypoint) {
     m.x = f32::NAN;
     m.y = f32::NAN;
     m.z = f32::NAN;
@@ -128,14 +128,14 @@ pub fn nan_pos(m: &mut State) {
 }
 
 #[inline]
-pub fn enu_pos(m: &mut State) {
+pub fn enu_pos(m: &mut LocalFrameWaypoint) {
     enu_all(m);
     nan_vel(m);
     nan_acc(m);
 }
 
 #[inline]
-pub fn nan_yaw(m: &mut State) {
+pub fn nan_yaw(m: &mut LocalFrameWaypoint) {
     m.yaw = f32::NAN;
     m.yaw_rate = f32::NAN;
 }

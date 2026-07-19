@@ -1,7 +1,11 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use tokio::task::JoinHandle;
+use tokio::{
+    sync::{mpsc, watch},
+    task::JoinHandle,
+};
+
 use zenoh::{
     Session,
     handlers::{RingChannel, RingChannelHandler},
@@ -9,16 +13,9 @@ use zenoh::{
     sample::Sample,
 };
 
-use crate::{
-    movement::{
-        MotionFrame::{EAST_NORTH_UP, FORWARD_LEFT_UP, FORWARD_RIGHT_DOWN, NORTH_EAST_DOWN},
-        MotionType::{CONTINUOUS, FINE},
-    },
-    splines::{self},
-    state::State,
-};
+use crate::{local_frame_waypoint::LocalFrameWaypoint, splines, state::FullState};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum MotionType {
     FINE,
     CONTINUOUS {
@@ -27,7 +24,7 @@ pub enum MotionType {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MotionFrame {
     NORTH_EAST_DOWN,
     EAST_NORTH_UP,
@@ -35,38 +32,46 @@ pub enum MotionFrame {
     FORWARD_RIGHT_DOWN,
 }
 
-const STATE_RING_SIZE: usize = 8; // tune to how much staleness you can tolerate
+const STATE_RING_SIZE: usize = 8;
 
+#[derive(Debug)]
 pub struct Movement {
     pub points: Vec<Vec3>,
     pub speed_limits: Vec<f32>,
     pub pipe_radius_m: f32,
     pub max_speed_m_s: f32,
     pub frame: MotionFrame,
+    pub cumulative_lengths: Vec<f32>,
+    pub total_length: f32,
+    pub task: Option<JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>>,
 }
 
 impl Movement {
-    pub async fn new<'a>(
+    pub fn new(
         targets: Vec<Vec3>,
         pipe_radius_m: f32,
         max_speed_m_s: f32,
+        longitudinal_accel_m_s2: f32,
         motion_type: MotionType,
         frame: MotionFrame,
     ) -> Self {
         let (points, speed_limits) = match motion_type {
-            FINE => {
+            MotionType::FINE => {
                 let n = targets.len();
                 (targets, vec![max_speed_m_s; n])
             }
-            CONTINUOUS {
+            MotionType::CONTINUOUS {
                 resolution,
                 energy_to_velocity,
             } => {
                 let spline = splines::Spline::new(targets, energy_to_velocity, resolution);
-                let limits = spline.speed_limits(pipe_radius_m, max_speed_m_s);
+                let limits =
+                    spline.speed_limits(pipe_radius_m, max_speed_m_s, longitudinal_accel_m_s2);
                 (spline.points, limits)
             }
         };
+
+        let (cumulative, total) = Self::build_arc_lengths(&points);
 
         Self {
             points,
@@ -74,60 +79,175 @@ impl Movement {
             pipe_radius_m,
             max_speed_m_s,
             frame,
+            cumulative_lengths: cumulative,
+            total_length: total,
+            task: None,
         }
     }
 
-    pub async fn start(
-        &mut self,
-        session: &Session,
-    ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
-        let points = self.points.clone();
+    fn build_arc_lengths(points: &[Vec3]) -> (Vec<f32>, f32) {
+        let mut cumulative = Vec::with_capacity(points.len());
 
-        let pub_frame_str = Movement::grab_frame_str(&self.frame);
+        if points.is_empty() {
+            return (cumulative, 0.0);
+        }
+
+        cumulative.push(0.0);
+
+        for pair in points.windows(2) {
+            let next = cumulative.last().copied().unwrap_or(0.0) + pair[0].distance(pair[1]);
+
+            cumulative.push(next);
+        }
+
+        let total = cumulative.last().copied().unwrap_or(0.0);
+        (cumulative, total)
+    }
+
+    /// Build the command associated with a planned point. The velocity follows
+    /// the local path tangent and is capped by the curvature-derived speed limit.
+    pub fn waypoint_at(&self, index: usize) -> Option<LocalFrameWaypoint> {
+        let point = *self.points.get(index)?;
+        let speed = self
+            .speed_limits
+            .get(index)
+            .copied()
+            .unwrap_or(self.max_speed_m_s)
+            .clamp(0.0, self.max_speed_m_s);
+
+        let tangent = if self.points.len() < 2 {
+            Vec3::ZERO
+        } else if index + 1 < self.points.len() {
+            self.points[index + 1] - point
+        } else {
+            point - self.points[index.saturating_sub(1)]
+        }
+        .normalize_or_zero();
+
+        let velocity = tangent * speed;
+        let yaw = tangent.y.atan2(tangent.x);
+
+        Some(LocalFrameWaypoint {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+            vx: velocity.x,
+            vy: velocity.y,
+            vz: velocity.z,
+            afx: 0.0,
+            afy: 0.0,
+            afz: 0.0,
+            force_en: false,
+            yaw,
+            yaw_rate: 0.0,
+        })
+    }
+
+    pub async fn execute(
+        &mut self,
+        mut state_rx: watch::Receiver<Option<FullState>>,
+        waypoint_tx: mpsc::Sender<LocalFrameWaypoint>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        for (index, point) in self.points.iter().enumerate() {
+            'control: loop {
+                // observe
+                state_rx.changed().await?;
+                let state = state_rx.borrow_and_update().clone();
+
+                let Some(state) = state else {
+                    continue 'control;
+                };
+
+                if (*point - state.pos).length() <= self.pipe_radius_m {
+                    break 'control;
+                }
+
+                // command
+
+                if let Some(command) = self.waypoint_at(index) {
+                    waypoint_tx.send(command).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn get_state(
+        subscriber: &Subscriber<RingChannelHandler<Sample>>,
+    ) -> Result<FullState, Box<dyn Error + Send + Sync>> {
+        subscriber.recv_async().await.and_then(|sample| {
+            let bytes = sample.payload();
+            Ok(rmp_serde::from_slice::<FullState>(&bytes.to_bytes())?)
+        })
+    }
+
+    /// Collect a publisher and subscriber for the selected motion frame.
+    #[allow(dead_code)]
+    async fn get_pub_sub(
+        frame: MotionFrame,
+        session: &Session,
+    ) -> Result<(Publisher, Subscriber<RingChannelHandler<Sample>>), Box<dyn Error + Send + Sync>>
+    {
+        let pub_frame_str = match frame {
+            MotionFrame::FORWARD_RIGHT_DOWN => "frd/raw",
+            MotionFrame::FORWARD_LEFT_UP => "flu/raw",
+            MotionFrame::EAST_NORTH_UP => "enu/raw",
+            MotionFrame::NORTH_EAST_DOWN => "ned/raw",
+        };
 
         let publisher = session
-            .declare_publisher(format!("control/move/{}", pub_frame_str))
+            .declare_publisher(format!("control/move/{pub_frame_str}"))
             .await?;
 
-        let sub_frame_str = match self.frame {
-            NORTH_EAST_DOWN => "pos/local/ned",    // local
-            EAST_NORTH_UP => "pos/local/enu",      // body
-            FORWARD_RIGHT_DOWN => "pos/local/ned", // local
-            FORWARD_LEFT_UP => "pos/local/enu",    // body
+        let sub_frame_str = match frame {
+            MotionFrame::NORTH_EAST_DOWN | MotionFrame::FORWARD_RIGHT_DOWN => {
+                "telem/state/local/ned"
+            }
+            MotionFrame::EAST_NORTH_UP | MotionFrame::FORWARD_LEFT_UP => "telem/state/local/enu",
         };
 
         let subscriber = session
-            .declare_subscriber(format!("control/telem/{}", sub_frame_str))
+            .declare_subscriber(format!("control/telem/{sub_frame_str}"))
             .with(RingChannel::new(STATE_RING_SIZE))
             .await?;
 
-        Ok(tokio::spawn(async move {
-            for point in points {
-                let sample = subscriber.recv_async().await.ok();
-                let _current_state: Option<(Vec3, Vec3, u32)> =
-                    sample.and_then(|s| rmp_serde::from_slice(&s.payload().to_bytes()).ok());
-
-                if let Some((x_m, v_m_s, dt_ms)) = _current_state {}
-                {
-                    // todo while not in arad do the thing
-                    let bytes = rmp_serde::to_vec(&point);
-                    if let Some(bytes) = bytes.ok() {
-                        let _ = publisher.put(bytes).await;
-                    }
-                }
-                // TODO: publish `point`, e.g.:
-                // let bytes = rmp_serde::to_vec(&point).unwrap();
-                // let _ = publisher.put(bytes).await;
-            }
-        }))
+        Ok((publisher, subscriber))
     }
 
-    fn grab_frame_str(motion_type: &MotionFrame) -> &'static str {
-        match motion_type {
-            FORWARD_RIGHT_DOWN => "frd/raw",
-            FORWARD_LEFT_UP => "flu/raw",
-            EAST_NORTH_UP => "enu/raw",
-            NORTH_EAST_DOWN => "ned/raw",
+    pub fn run(
+        &mut self,
+        runtime: &tokio::runtime::Handle,
+        state_rx: watch::Receiver<Option<FullState>>,
+        waypoint_tx: mpsc::Sender<LocalFrameWaypoint>,
+    ) {
+        self.cancel();
+
+        let mut movement = self.clone();
+
+        self.task =
+            Some(runtime.spawn(async move { movement.execute(state_rx, waypoint_tx).await }));
+    }
+
+    pub fn cancel(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+impl Clone for Movement {
+    fn clone(&self) -> Self {
+        Self {
+            points: self.points.clone(),
+            speed_limits: self.speed_limits.clone(),
+            pipe_radius_m: self.pipe_radius_m,
+            max_speed_m_s: self.max_speed_m_s,
+            frame: self.frame,
+            cumulative_lengths: self.cumulative_lengths.clone(),
+            total_length: self.total_length,
+            task: None,
         }
     }
 }

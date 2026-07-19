@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+anyhow = "1.0.104"
 glam = { version = "0.33.0", features = ["serde"] }
 
 mavlink = { version = "0.18.0", default-features = false, features = [

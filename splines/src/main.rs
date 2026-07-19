@@ -1,12 +1,14 @@
 use std::time::Duration;
 use tokio::signal::ctrl_c;
+use tokio::time::sleep;
 use zenoh;
 
+mod local_frame_waypoint;
 mod movement;
-mod movement_handler;
+
+mod path_sample;
 mod splines;
 mod state;
-use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() {

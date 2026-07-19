@@ -7,7 +7,7 @@ use mavlink::dialects::common::{
 
 use crate::{
     connection::MavlinkHandle,
-    packets::state::{self, State},
+    packets::local_frame_waypoint::{self, LocalFrameWaypoint},
     telem::{AUTOPILOT, AUTOPILOT_MODE, FlightMode},
 };
 
@@ -26,7 +26,7 @@ pub async fn declare_movement_input_sub(
 
             tokio::spawn(async move {
                 let bytes = &*sample.payload().to_bytes();
-                let movement = rmp_serde::from_slice::<State>(bytes).ok();
+                let movement = rmp_serde::from_slice::<LocalFrameWaypoint>(bytes).ok();
 
                 if let Some(mut m) = movement {
                     frame_conversion(&mut m);
@@ -44,13 +44,17 @@ pub async fn declare_movement_input_sub(
                             MavFrame::MAV_FRAME_LOCAL_NED
                         };
 
-                        if let Some(autopilot_mode) = *AUTOPILOT_MODE.read().await {
-                            if autopilot_mode.can_fly() {
-                                let _res = mavconn
-                                    .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))
-                                    .await
-                                    .ok();
-                            }
+                        if AUTOPILOT_MODE
+                            .read()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .as_ref()
+                            .is_some_and(|mode| mode.can_fly())
+                        {
+                            let _res = mavconn
+                                .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))
+                                .await
+                                .ok();
                         }
                     }
                 }
@@ -67,111 +71,111 @@ struct MovementSubParams {
     pub is_body_frame: bool,
 }
 
-type MovementFn = Arc<dyn Fn(&mut State) + Send + Sync>;
+type MovementFn = Arc<dyn Fn(&mut LocalFrameWaypoint) + Send + Sync>;
 pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
     let tuples = [
         MovementSubParams {
             keyexpr: "control/move/ned/raw".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
                 // dindu nuffin
-                state::ned_all(m);
+                local_frame_waypoint::ned_all(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/ned/pos".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::ned_all(m);
-                state::nan_vel(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::ned_all(m);
+                local_frame_waypoint::nan_vel(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/raw".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
                 // println!("MOVED: {m:?}");
-                state::enu_all(m);
+                local_frame_waypoint::enu_all(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/pos".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::enu_all(m);
-                state::nan_vel(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::enu_all(m);
+                local_frame_waypoint::nan_vel(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/velo".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::enu_all(m);
-                state::nan_pos(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::enu_all(m);
+                local_frame_waypoint::nan_pos(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/ned/velo".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::ned_all(m);
-                state::nan_pos(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::ned_all(m);
+                local_frame_waypoint::nan_pos(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         /////////////////////////////////////////////
         MovementSubParams {
             keyexpr: "control/move/frd/raw".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
                 // dindu nuffin
-                state::ned_all(m);
+                local_frame_waypoint::ned_all(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/frd/pos".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::ned_all(m);
-                state::nan_vel(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::ned_all(m);
+                local_frame_waypoint::nan_vel(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/rfu/raw".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
                 // println!("MOVED: {m:?}");
-                state::rfu_all(m);
+                local_frame_waypoint::rfu_all(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/rfu/pos".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::rfu_all(m);
-                state::nan_vel(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::rfu_all(m);
+                local_frame_waypoint::nan_vel(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/rfu/velo".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::rfu_all(m);
-                state::nan_pos(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::rfu_all(m);
+                local_frame_waypoint::nan_pos(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/frd/velo".into(),
-            movement_tranform: Arc::new(|m: &mut State| {
-                state::ned_all(m);
-                state::nan_pos(m);
-                state::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut LocalFrameWaypoint| {
+                local_frame_waypoint::ned_all(m);
+                local_frame_waypoint::nan_pos(m);
+                local_frame_waypoint::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
