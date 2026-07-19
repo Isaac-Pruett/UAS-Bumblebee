@@ -55,7 +55,7 @@ def main():
     )
     listener.start()
 
-    pub = session.declare_publisher("mavlink/control/move/flu/raw")
+    pub = session.declare_publisher("mavlink/control/move/rfu/raw")
 
     land_pub = session.declare_publisher("mavlink/control/move/land")
 

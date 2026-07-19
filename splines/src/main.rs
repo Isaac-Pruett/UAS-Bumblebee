@@ -1,14 +1,11 @@
 use std::time::Duration;
 use tokio::signal::ctrl_c;
 use zenoh;
-use zenoh::Wait;
 
-mod motion_task;
-mod proxy;
+mod movement;
+mod movement_handler;
 mod splines;
-
-use splines::build_spline;
-
+mod state;
 use tokio::time::sleep;
 
 #[tokio::main]

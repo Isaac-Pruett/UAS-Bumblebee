@@ -198,12 +198,20 @@ pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<J
 
     // watch: only the latest position matters
     let ned_rx = router.subscribe_watch(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.x, data.y, data.z)),
+        MavMessage::LOCAL_POSITION_NED(data) => Some((
+            Vec3::new(data.x, data.y, data.z),
+            Vec3::new(data.vx, data.vy, data.vz),
+            data.time_boot_ms,
+        )),
         _ => None,
     });
 
     let enu_rx = router.subscribe_watch(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.y, data.x, -data.z)),
+        MavMessage::LOCAL_POSITION_NED(data) => Some((
+            Vec3::new(data.y, data.x, -data.z),
+            Vec3::new(data.vy, data.vx, -data.vz),
+            data.time_boot_ms,
+        )),
         _ => None,
     });
 

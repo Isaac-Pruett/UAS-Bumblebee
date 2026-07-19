@@ -65,14 +65,15 @@ fn bezier(points: &[Vec3], t: f32) -> Vec3 {
 }
 
 pub struct Spline {
-    curves: Vec<BezierN>,
+    pub curves: Vec<BezierN>,
     passthrus: Vec<Vec3>,
     pub points: Vec<Vec3>,
 }
 
 impl Spline {
-    pub fn new(waypoints: Vec<Vec3>, energy_to_speed: f32, resolution: u32) -> Self {
-        let curves = Spline::build_spline(&waypoints, BezierCostMode::TENSIONED(energy_to_speed));
+    pub fn new(waypoints: Vec<Vec3>, energy_to_velocity: f32, resolution: u32) -> Self {
+        let curves =
+            Spline::build_spline(&waypoints, BezierCostMode::TENSIONED(energy_to_velocity));
 
         let mut interpolated = Vec::new();
         for curve in &curves {
@@ -87,6 +88,59 @@ impl Spline {
         }
     }
 
+    /// Curvature (1/radius, in 1/meters) at each point in `self.points`,
+    /// via discrete circumcircle approximation from three consecutive points.
+    /// Endpoints get curvature 0 (straight-line assumption at the ends).
+    pub fn curvatures(&self) -> Vec<f32> {
+        let pts = &self.points;
+        let n = pts.len();
+        if n < 3 {
+            return vec![0.0; n];
+        }
+
+        let mut out = vec![0.0; n];
+        for i in 1..n - 1 {
+            out[i] = Spline::curvature_at(pts[i - 1], pts[i], pts[i + 1]);
+        }
+        out
+    }
+
+    /// Menger curvature: 4 * triangle_area / (|ab| * |bc| * |ca|)
+    #[inline]
+    fn curvature_at(a: Vec3, b: Vec3, c: Vec3) -> f32 {
+        let ab = (b - a).length();
+        let bc = (c - b).length();
+        let ca = (a - c).length();
+
+        if ab < 1e-6 || bc < 1e-6 || ca < 1e-6 {
+            return 0.0;
+        }
+
+        let area = 0.5 * (b - a).cross(c - a).length();
+        (4.0 * area) / (ab * bc * ca)
+    }
+
+    /// Per-point speed cap derived from curvature and a lateral acceleration
+    /// limit, itself derived from pipe_radius_m and max_speed_m_s: tighter
+    /// pipes imply gentler lateral kicks are wanted through turns.
+    pub fn speed_limits(&self, pipe_radius_m: f32, max_speed_m_s: f32) -> Vec<f32> {
+        // Heuristic: allow up to ~1 "pipe radius worth" of lateral accel per
+        // second^2 at max speed, scaled down for smaller pipes. Tune the
+        // constant below once you have real hardware numbers.
+        let lateral_accel_max = (pipe_radius_m * max_speed_m_s).max(0.1);
+
+        self.curvatures()
+            .into_iter()
+            .map(|k| {
+                if k < 1e-6 {
+                    max_speed_m_s
+                } else {
+                    (lateral_accel_max / k).sqrt().min(max_speed_m_s)
+                }
+            })
+            .collect()
+    }
+
     // get the cost from tangent vector at point i in points
     #[inline]
     fn vec_from_cost_at_idx(points: &[Vec3], i: usize, cost_mode: BezierCostMode) -> Vec3 {
@@ -94,7 +148,6 @@ impl Spline {
         match cost_mode {
             BezierCostMode::UNIFORM => Spline::tangent_at_energy(points, i),
             BezierCostMode::VELOCITY => Spline::tangent_at_velo(points, i),
-
             BezierCostMode::TENSIONED(t) => Spline::tangent_at_tension(points, i, t),
         }
     }
@@ -115,9 +168,9 @@ impl Spline {
     #[inline]
     fn tangent_at_velo(points: &[Vec3], i: usize) -> Vec3 {
         if i == 0 {
-            points[1] - points[0]
+            points[1] - points[0] // 2nd - 1st
         } else if i == points.len() - 1 {
-            points[i] - points[i - 1]
+            points[i] - points[i - 1] // last - 2ndlast
         } else {
             let prev = points[i] - points[i - 1];
             let next = points[i + 1] - points[i];

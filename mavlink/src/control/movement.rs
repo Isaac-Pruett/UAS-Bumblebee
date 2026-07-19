@@ -7,7 +7,7 @@ use mavlink::dialects::common::{
 
 use crate::{
     connection::MavlinkHandle,
-    packets::motion::{self, Movement},
+    packets::state::{self, State},
     telem::{AUTOPILOT, AUTOPILOT_MODE, FlightMode},
 };
 
@@ -26,7 +26,7 @@ pub async fn declare_movement_input_sub(
 
             tokio::spawn(async move {
                 let bytes = &*sample.payload().to_bytes();
-                let movement = rmp_serde::from_slice::<Movement>(bytes).ok();
+                let movement = rmp_serde::from_slice::<State>(bytes).ok();
 
                 if let Some(mut m) = movement {
                     frame_conversion(&mut m);
@@ -67,111 +67,111 @@ struct MovementSubParams {
     pub is_body_frame: bool,
 }
 
-type MovementFn = Arc<dyn Fn(&mut Movement) + Send + Sync>;
+type MovementFn = Arc<dyn Fn(&mut State) + Send + Sync>;
 pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
     let tuples = [
         MovementSubParams {
             keyexpr: "control/move/ned/raw".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
+            movement_tranform: Arc::new(|m: &mut State| {
                 // dindu nuffin
-                motion::ned_all(m);
+                state::ned_all(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/ned/pos".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::ned_all(m);
+                state::nan_vel(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/raw".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
+            movement_tranform: Arc::new(|m: &mut State| {
                 // println!("MOVED: {m:?}");
-                motion::enu_all(m);
+                state::enu_all(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/pos".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::enu_all(m);
+                state::nan_vel(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/enu/velo".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::enu_all(m);
+                state::nan_pos(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         MovementSubParams {
             keyexpr: "control/move/ned/velo".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::ned_all(m);
+                state::nan_pos(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
         /////////////////////////////////////////////
         MovementSubParams {
             keyexpr: "control/move/frd/raw".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
+            movement_tranform: Arc::new(|m: &mut State| {
                 // dindu nuffin
-                motion::ned_all(m);
+                state::ned_all(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/frd/pos".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::ned_all(m);
+                state::nan_vel(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
-            keyexpr: "control/move/flu/raw".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
+            keyexpr: "control/move/rfu/raw".into(),
+            movement_tranform: Arc::new(|m: &mut State| {
                 // println!("MOVED: {m:?}");
-                motion::enu_all(m);
+                state::rfu_all(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
-            keyexpr: "control/move/flu/pos".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
+            keyexpr: "control/move/rfu/pos".into(),
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::rfu_all(m);
+                state::nan_vel(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
-            keyexpr: "control/move/flu/velo".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
+            keyexpr: "control/move/rfu/velo".into(),
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::rfu_all(m);
+                state::nan_pos(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
         MovementSubParams {
             keyexpr: "control/move/frd/velo".into(),
-            movement_tranform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
+            movement_tranform: Arc::new(|m: &mut State| {
+                state::ned_all(m);
+                state::nan_pos(m);
+                state::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },
