@@ -3,13 +3,6 @@ use tokio::signal::ctrl_c;
 use tokio::time::sleep;
 use zenoh;
 
-mod local_frame_waypoint;
-mod movement;
-
-mod path_sample;
-mod splines;
-mod state;
-
 #[tokio::main]
 async fn main() {
     let session = zenoh::open(zenoh::Config::from_env().unwrap_or(zenoh::Config::default()))
