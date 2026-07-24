@@ -7,30 +7,24 @@ use tokio::{
 
 use splines::{
     local_frame_waypoint::LocalFrameWaypoint,
-    movement::{BarrierMargins, MotionFrame, MotionType, Movement},
+    movement::{MotionFrame, MotionType, Movement},
     state::FullState,
 };
 
 fn build_movement(
     targets: &[Vec3],
     pipe_radius_m: f32,
-    max_speed_m_s: f32,
-    longitudinal_accel_m_s2: f32,
     resolution: u32,
     curvature: f32,
-    barrier_margins: BarrierMargins,
 ) -> Movement {
     Movement::new(
         targets.to_vec(),
         pipe_radius_m,
-        max_speed_m_s,
-        longitudinal_accel_m_s2,
-        barrier_margins,
         MotionType::CONTINUOUS {
             resolution,
-            curvature,
+            smoothness: curvature,
         },
-        MotionFrame::EAST_NORTH_UP,
+        MotionFrame::EastNorthUp,
     )
 }
 
@@ -76,21 +70,13 @@ async fn main() {
     ];
 
     let mut pipe_radius_m = 2.0;
-    let mut max_speed_m_s = 1.0;
-    let mut longitudinal_accel_m_s2 = 3.0;
     let mut resolution = 20_u32;
     let mut curvature = 0.5;
-    let mut barrier_margins = BarrierMargins::default();
 
-    let mut movement = build_movement(
-        &targets,
-        pipe_radius_m,
-        max_speed_m_s,
-        longitudinal_accel_m_s2,
-        resolution,
-        curvature,
-        barrier_margins,
-    );
+    let mut longitudinal_accel_m_s2: f32 = 2.0;
+    let mut max_speed_m_s: f32 = 5.0;
+
+    let mut movement = build_movement(&targets, pipe_radius_m, resolution, curvature);
 
     let start = movement.points.first().copied().unwrap_or(Vec3::ZERO);
 
@@ -166,26 +152,6 @@ async fn main() {
             edited = true;
         }
 
-        // G / H: pipe barrier gain
-        if is_key_down(KeyCode::G) {
-            barrier_margins.pipe_margin_m = (barrier_margins.pipe_margin_m - 0.05_f32).max(0.0_f32);
-            edited = true;
-        }
-        if is_key_down(KeyCode::H) {
-            barrier_margins.pipe_margin_m = (barrier_margins.pipe_margin_m + 0.05_f32).min(4.0_f32);
-            edited = true;
-        }
-
-        // O / P: carrot-lead barrier gain
-        if is_key_down(KeyCode::O) {
-            barrier_margins.carrot_lead_m = (barrier_margins.carrot_lead_m - 0.05_f32).max(0.0_f32);
-            edited = true;
-        }
-        if is_key_down(KeyCode::P) {
-            barrier_margins.carrot_lead_m = (barrier_margins.carrot_lead_m + 0.05_f32).min(4.0_f32);
-            edited = true;
-        }
-
         // --- Mouse: pick up / drag / drop a waypoint ---
         let mouse_screen = Vec2::from(mouse_position());
 
@@ -225,15 +191,7 @@ async fn main() {
         if is_key_pressed(KeyCode::R) || edited {
             movement.cancel();
 
-            movement = build_movement(
-                &targets,
-                pipe_radius_m,
-                max_speed_m_s,
-                longitudinal_accel_m_s2,
-                resolution,
-                curvature,
-                barrier_margins,
-            );
+            movement = build_movement(&targets, pipe_radius_m, resolution, curvature);
 
             let reset_position = movement.points.first().copied().unwrap_or(start);
 
@@ -254,18 +212,29 @@ async fn main() {
 
         if !paused {
             if let Some(command) = &active_command {
-                let desired_velocity = Vec3::new(command.vx, command.vy, command.vz);
+                let carrot = Vec3::new(command.x, command.y, command.z);
+                let displacement = carrot - state.pos;
+                let distance = displacement.length();
 
-                let vehicle_max_accel_m_s2 = 2.0;
+                let acceleration = longitudinal_accel_m_s2.max(0.01);
+
+                // Slow sufficiently to stop at the current carrot.
+                let desired_speed = (2.0 * acceleration * distance).sqrt().min(max_speed_m_s);
+
+                let desired_velocity = displacement.normalize_or_zero() * desired_speed;
+
                 let velocity_delta = desired_velocity - state.velo;
 
-                state.velo += velocity_delta.clamp_length_max(vehicle_max_accel_m_s2 * dt);
+                state.velo += velocity_delta.clamp_length_max(acceleration * dt);
 
                 state.pos += state.velo * dt;
 
                 if state.velo.length_squared() > f32::EPSILON {
                     state.yaw = state.velo.y.atan2(state.velo.x);
                 }
+            } else {
+                // No carrot yet: keep the initial state valid and stationary.
+                state.velo = Vec3::ZERO;
             }
 
             elapsed_ms = elapsed_ms.saturating_add((dt * 1000.0) as u32);
@@ -275,12 +244,7 @@ async fn main() {
 
             let _ = state_tx.send(Some(state.clone()));
         }
-
         // Live barrier margins, computed against the active carrot (if any).
-        let margins = active_command
-            .as_ref()
-            .and_then(|c| movement.barrier_margins(state.pos, Vec3::new(c.x, c.y, c.z)));
-
         clear_background(Color::from_rgba(18, 18, 22, 255));
 
         // --- Path: static speed-limit centerline (now dimmer/secondary) ---
@@ -291,16 +255,13 @@ async fn main() {
             let a_screen = to_screen(a);
             let b_screen = to_screen(b);
 
-            let fraction = movement.speed_limits.get(index).copied().unwrap_or(0.0)
-                / movement.max_speed_m_s.max(f32::EPSILON);
-
             draw_line(
                 a_screen.x,
                 a_screen.y,
                 b_screen.x,
                 b_screen.y,
                 2.0,
-                Color::new(1.0 - fraction, fraction, 0.2, 0.5),
+                Color::new(0.0, 1.0, 0.2, 0.5),
             );
 
             let dir = b - a;
@@ -342,30 +303,34 @@ async fn main() {
         }
 
         if let Some(command) = &active_command {
-            let p = to_screen(Vec3::new(command.x, command.y, command.z));
-            draw_circle_lines(p.x, p.y, 9.0, 2.0, ORANGE);
+            let carrot = Vec3::new(command.x, command.y, command.z);
+            let to_carrot = carrot - state.pos;
+            let distance_to_carrot = to_carrot.length();
+
+            let acceleration = longitudinal_accel_m_s2.max(0.01);
+
+            let target_speed = (2.0 * acceleration * distance_to_carrot)
+                .sqrt()
+                .min(max_speed_m_s);
+
+            let desired_velocity = to_carrot.normalize_or_zero() * target_speed;
+
+            let velocity_delta = desired_velocity - state.velo;
+
+            state.velo += velocity_delta.clamp_length_max(acceleration * dt);
+            state.pos += state.velo * dt;
+
+            if state.velo.length_squared() > f32::EPSILON {
+                state.yaw = state.velo.y.atan2(state.velo.x);
+            }
         }
 
         // --- Vehicle: color-coded live by pipe margin instead of a fixed color ---
         let vehicle = to_screen(state.pos);
 
-        let vehicle_color = margins
-            .map(|m| margin_color(m.pipe_margin_m, pipe_radius_m))
-            .unwrap_or(SKYBLUE);
+        let vehicle_color = Color::from_hex(0xffffff);
 
         draw_circle(vehicle.x, vehicle.y, 9.0, vehicle_color);
-
-        // Ring showing exactly how much lateral margin is left, to scale.
-        if let Some(m) = margins {
-            let margin_px = m.pipe_margin_m.max(0.0) * scale;
-            draw_circle_lines(
-                vehicle.x,
-                vehicle.y,
-                margin_px,
-                1.0,
-                Color::new(1.0, 1.0, 1.0, 0.25),
-            );
-        }
 
         let heading = vec2(state.yaw.cos(), -state.yaw.sin()) * 18.0;
 
@@ -400,28 +365,6 @@ async fn main() {
             21.0,
             LIGHTGRAY,
         );
-
-        // --- Live barrier telemetry ---
-        if let Some(m) = margins {
-            draw_text(
-                &format!("pipe margin: {:.2} m", m.pipe_margin_m),
-                20.0,
-                80.0,
-                20.0,
-                margin_color(m.pipe_margin_m, pipe_radius_m),
-            );
-
-            draw_text(
-                &format!("carrot lead: {:.2} m", m.carrot_lead_m),
-                220.0,
-                80.0,
-                20.0,
-                margin_color(m.carrot_lead_m, pipe_radius_m.max(0.5)),
-            );
-        } else {
-            draw_text("pipe margin: --", 20.0, 80.0, 20.0, GRAY);
-            draw_text("carrot lead: --", 220.0, 80.0, 20.0, GRAY);
-        }
 
         draw_text(
             &format!("A/D pipe radius: {:.2} m", pipe_radius_m,),
@@ -459,22 +402,6 @@ async fn main() {
             &format!("C/V curvature: {:.2}", curvature,),
             20.0,
             218.0,
-            20.0,
-            WHITE,
-        );
-
-        draw_text(
-            &format!("G/H pipe gain: {:.2}", barrier_margins.pipe_margin_m,),
-            20.0,
-            244.0,
-            20.0,
-            WHITE,
-        );
-
-        draw_text(
-            &format!("O/P carrot gain: {:.2}", barrier_margins.carrot_lead_m,),
-            20.0,
-            270.0,
             20.0,
             WHITE,
         );

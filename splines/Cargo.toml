@@ -2,6 +2,7 @@
 name = "splines"
 version = "0.1.0"
 edition = "2024"
+default-run = "splines"
 
 [dependencies]
 ctrlc = "3.5.2"
@@ -16,12 +17,14 @@ zenoh-ext = ">=1.9"
 
 macroquad = { version = "0.4", optional = true }
 
+serde_json = "1.0.151"
+
 [features]
-viz = ["macroquad"]
+viz = ["dep:macroquad"]
 
 [[bin]]
 name = "spline_viewer"
-path = "src/spline_viewer.rs"
+path = "src/bin/spline_viewer.rs"
 required-features = ["viz"]
 
 [[bin]]

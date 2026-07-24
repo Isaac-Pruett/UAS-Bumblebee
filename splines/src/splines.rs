@@ -1,5 +1,28 @@
 use glam::Vec3;
 
+#[derive(Debug, Clone)]
+pub struct CubicSegment {
+    pub start: Vec3,
+    pub control1: Vec3,
+    pub control2: Vec3,
+    pub end: Vec3,
+}
+
+impl CubicSegment {
+    pub fn new(start: Vec3, control1: Vec3, control2: Vec3, end: Vec3) -> Self {
+        Self {
+            start,
+            control1,
+            control2,
+            end,
+        }
+    }
+
+    pub fn into_bezier(self) -> BezierN {
+        BezierN::new(self.start, vec![self.control1, self.control2], self.end)
+    }
+}
+
 pub struct BezierN {
     pub start: Vec3,
     pub controls: Vec<Vec3>,
@@ -15,6 +38,9 @@ impl BezierN {
         }
     }
     pub fn interp(&self, resolution: u32) -> Vec<Vec3> {
+        if resolution == 0 {
+            return vec![self.start];
+        }
         let ctrls = self.points();
 
         (0..=resolution)
@@ -66,14 +92,13 @@ fn bezier(points: &[Vec3], t: f32) -> Vec3 {
 
 pub struct Spline {
     pub curves: Vec<BezierN>,
-    passthrus: Vec<Vec3>,
     pub points: Vec<Vec3>,
 }
 
 impl Spline {
     pub fn new(waypoints: Vec<Vec3>, energy_to_velocity: f32, resolution: u32) -> Self {
         let curves =
-            Spline::build_spline(&waypoints, BezierCostMode::TENSIONED(energy_to_velocity));
+            Spline::build_bcurve(&waypoints, BezierCostMode::TENSIONED(energy_to_velocity));
 
         let mut interpolated = Vec::new();
         for curve in &curves {
@@ -83,99 +108,47 @@ impl Spline {
 
         Spline {
             curves,
-            passthrus: waypoints,
             points: interpolated,
         }
     }
 
-    /// Curvature (1/radius, in 1/meters) at each point in `self.points`,
-    /// via discrete circumcircle approximation from three consecutive points.
-    /// Endpoints get curvature 0 (straight-line assumption at the ends).
-    pub fn curvatures(&self) -> Vec<f32> {
-        let pts = &self.points;
-        let n = pts.len();
+    pub fn from_curves(curves: Vec<BezierN>, resolution: u32) -> Self {
+        let points = Self::interpolate_curves(&curves, resolution);
 
-        if n < 3 {
-            return vec![0.0; n];
-        }
-
-        let mut out = vec![0.0; n];
-
-        for i in 1..n - 1 {
-            out[i] = Self::curvature_at(pts[i - 1], pts[i], pts[i + 1]);
-        }
-
-        // One-sided approximations for the endpoints.
-        out[0] = Self::curvature_at(pts[0], pts[1], pts[2]);
-        out[n - 1] = Self::curvature_at(pts[n - 3], pts[n - 2], pts[n - 1]);
-
-        out
+        Self { curves, points }
     }
 
-    /// Menger curvature: 4 * triangle_area / (|ab| * |bc| * |ca|)
-    #[inline]
-    fn curvature_at(a: Vec3, b: Vec3, c: Vec3) -> f32 {
-        let ab = (b - a).length();
-        let bc = (c - b).length();
-        let ca = (a - c).length();
-
-        if ab < 1e-6 || bc < 1e-6 || ca < 1e-6 {
-            return 0.0;
-        }
-
-        let area = 0.5 * (b - a).cross(c - a).length();
-        (4.0 * area) / (ab * bc * ca)
-    }
-
-    /// Per-point speed cap derived from curvature and a lateral acceleration
-    /// limit, itself derived from pipe_radius_m and max_speed_m_s: tighter
-    /// pipes imply gentler lateral kicks are wanted through turns.
-    pub fn speed_limits(
-        &self,
-        pipe_radius_m: f32,
-        max_speed_m_s: f32,
-        longitudinal_accel_m_s2: f32,
-    ) -> Vec<f32> {
-        let n = self.points.len();
-        if n == 0 {
-            return Vec::new();
-        }
-
-        let lateral_accel_max = (pipe_radius_m * max_speed_m_s).max(0.1);
-        let accel = longitudinal_accel_m_s2.max(0.0);
-
-        let mut limits: Vec<f32> = self
-            .curvatures()
+    pub fn from_cubic_segments(segments: Vec<CubicSegment>, resolution: u32) -> Self {
+        let curves = segments
             .into_iter()
-            .map(|k| {
-                if k < 1e-6 {
-                    max_speed_m_s
-                } else {
-                    (lateral_accel_max / k).sqrt().min(max_speed_m_s)
-                }
-            })
+            .map(CubicSegment::into_bezier)
             .collect();
 
-        // Forward pass: limits acceleration from point i - 1 to point i.
-        for i in 1..n {
-            let distance = self.points[i].distance(self.points[i - 1]);
+        Self::from_curves(curves, resolution)
+    }
 
-            // v1^2 = v0^2 + 2*a*distance
-            let reachable = (limits[i - 1].powi(2) + 2.0 * accel * distance).sqrt();
-
-            limits[i] = limits[i].min(reachable);
+    fn interpolate_curves(curves: &[BezierN], resolution: u32) -> Vec<Vec3> {
+        if resolution == 0 {
+            return curves
+                .first()
+                .map(|curve| vec![curve.start])
+                .unwrap_or_default();
         }
 
-        // Backward pass: ensures enough distance to slow down for upcoming turns.
-        for i in (0..n - 1).rev() {
-            let distance = self.points[i + 1].distance(self.points[i]);
+        let mut points = Vec::new();
 
-            let reachable = (limits[i + 1].powi(2) + 2.0 * accel * distance).sqrt();
+        for (curve_index, curve) in curves.iter().enumerate() {
+            let curve_points = curve.interp(resolution);
 
-            limits[i] = limits[i].min(reachable);
+            if curve_index == 0 {
+                points.extend(curve_points);
+            } else {
+                // Avoid duplicating the shared endpoint between curves.
+                points.extend(curve_points.into_iter().skip(1));
+            }
         }
 
-        limits
+        points
     }
 
     // get the cost from tangent vector at point i in points
@@ -231,7 +204,7 @@ impl Spline {
         BezierN::new(p0, vec![p0 + v0 / 3.0, p1 - v1 / 3.0], p1)
     }
 
-    pub fn build_spline(points: &[Vec3], cost_mode: BezierCostMode) -> Vec<BezierN> {
+    pub fn build_bcurve(points: &[Vec3], cost_mode: BezierCostMode) -> Vec<BezierN> {
         if points.len() < 2 {
             return Vec::new();
         }
