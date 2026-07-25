@@ -9,7 +9,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MovementRequest {
     pub path: PathRequest,
-    pub resolution: u32,
+    pub points_per_m: u32,
     pub pipe_radius_m: f32,
     pub frame: MotionFrame,
 }
@@ -47,14 +47,16 @@ impl Into<Movement> for MovementRequest {
                 points,
                 self.pipe_radius_m,
                 crate::movement::MotionType::CONTINUOUS {
-                    resolution: self.resolution,
+                    points_per_m: self.points_per_m,
                     smoothness: smoothing,
                 },
                 self.frame,
             ),
             PathRequest::CubicBezier { segments } => {
                 let curves = segments.into_iter().map(BezierN::from).collect::<Vec<_>>();
-                let spline = Spline::from_curves(curves, self.resolution);
+
+                let spline = Spline::from_curves_per_meter(curves, self.points_per_m);
+
                 Movement {
                     points: spline.points,
                     pipe_radius_m: self.pipe_radius_m,

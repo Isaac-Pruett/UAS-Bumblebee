@@ -14,14 +14,14 @@ use splines::{
 fn build_movement(
     targets: &[Vec3],
     pipe_radius_m: f32,
-    resolution: u32,
+    points_per_m: u32,
     curvature: f32,
 ) -> Movement {
     Movement::new(
         targets.to_vec(),
         pipe_radius_m,
         MotionType::CONTINUOUS {
-            resolution,
+            points_per_m,
             smoothness: curvature,
         },
         MotionFrame::EastNorthUp,
@@ -70,13 +70,13 @@ async fn main() {
     ];
 
     let mut pipe_radius_m = 2.0;
-    let mut resolution = 20_u32;
+    let mut points_per_m = 20_u32;
     let mut curvature = 0.5;
 
     let mut longitudinal_accel_m_s2: f32 = 2.0;
     let mut max_speed_m_s: f32 = 5.0;
 
-    let mut movement = build_movement(&targets, pipe_radius_m, resolution, curvature);
+    let mut movement = build_movement(&targets, pipe_radius_m, points_per_m, curvature);
 
     let start = movement.points.first().copied().unwrap_or(Vec3::ZERO);
 
@@ -135,11 +135,11 @@ async fn main() {
         }
 
         if is_key_down(KeyCode::Z) {
-            resolution = resolution.saturating_sub(1).max(1);
+            points_per_m = points_per_m.saturating_sub(1).max(1);
             edited = true;
         }
         if is_key_down(KeyCode::X) {
-            resolution = resolution.saturating_add(1);
+            points_per_m = points_per_m.saturating_add(1);
             edited = true;
         }
 
@@ -191,7 +191,7 @@ async fn main() {
         if is_key_pressed(KeyCode::R) || edited {
             movement.cancel();
 
-            movement = build_movement(&targets, pipe_radius_m, resolution, curvature);
+            movement = build_movement(&targets, pipe_radius_m, points_per_m, curvature);
 
             let reset_position = movement.points.first().copied().unwrap_or(start);
 
@@ -391,7 +391,7 @@ async fn main() {
         );
 
         draw_text(
-            &format!("Z/X resolution: {}", resolution,),
+            &format!("Z/X pts per m: {}", points_per_m,),
             20.0,
             192.0,
             20.0,

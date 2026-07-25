@@ -18,7 +18,7 @@ use crate::{local_frame_waypoint::LocalFrameWaypoint, splines, state::FullState}
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum MotionType {
     FINE,
-    CONTINUOUS { resolution: u32, smoothness: f32 },
+    CONTINUOUS { points_per_m: u32, smoothness: f32 },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +49,7 @@ impl Movement {
         let points = match motion_type {
             MotionType::FINE => targets,
             MotionType::CONTINUOUS {
-                resolution,
+                points_per_m: resolution,
                 smoothness: energy_to_velocity,
             } => {
                 let spline = splines::Spline::new(targets, energy_to_velocity, resolution);
