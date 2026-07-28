@@ -1,0 +1,3 @@
+# .cargo/config.toml
+[alias]
+viz = "run --bin formation_viewer --features viz"
