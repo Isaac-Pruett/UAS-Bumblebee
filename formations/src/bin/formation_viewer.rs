@@ -58,7 +58,7 @@ async fn main() {
                 .collect();
 
             let cols = 5;
-            let spacing = 45.0;
+            let spacing = 60.0;
 
             let row = i / cols;
             let col = i % cols;
@@ -75,9 +75,18 @@ async fn main() {
                     0.0,
                 );
 
-            let separation = 400.0 * separation_fn(boid.pos, 30.0, 180.0, &other_positions);
+            let separation = 80.0 * separation_fn(boid.pos, 40.0, 80.0, &other_positions);
 
-            let cohesion = cohesion_fn(boid.pos, boid.velo, desired_position, 2.0, 1.8);
+            let cohesion = cohesion_fn(boid.pos, boid.velo, desired_position, 2.2, 1.8);
+
+            let too_close = snapshot
+                .iter()
+                .enumerate()
+                .any(|(j, other)| j != i && (boid.pos - other.pos).length() < 20.0);
+
+            if too_close {
+                draw_circle(boid.pos.x, boid.pos.y, 20.0, YELLOW);
+            }
 
             boid.acc = separation + cohesion;
 
