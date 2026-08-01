@@ -1,4 +1,4 @@
-use glam::Vec3;
+use glam::Vec3A;
 use serde::{Deserialize, Serialize};
 use zenoh::pubsub::Publisher;
 
@@ -15,7 +15,7 @@ pub enum MotionType {
 
 pub struct Movement {
     task: Option<tokio::task::JoinHandle<()>>,
-    points: Vec<Vec3>,
+    points: Vec<Vec3A>,
     pipe_radius_m: f32,
     max_speed_m_s: f32,
 }
@@ -28,7 +28,7 @@ pub struct MotionProfile {
 }
 
 impl Movement {
-    pub fn new(targets: Vec<Vec3>, profile: MotionProfile) -> Self {
+    pub fn new(targets: Vec<Vec3A>, profile: MotionProfile) -> Self {
         let points = match &profile.motion_type {
             FINE => targets,
             CONTINUOUS {

@@ -2,7 +2,7 @@ use crate::{
     motion_task::{MotionProfile, MotionType, Movement},
     splines::BezierN,
 };
-use glam::Vec3;
+use glam::Vec3A;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use zenoh::{Session, pubsub::Publisher};
@@ -14,7 +14,7 @@ pub struct SplineGeneratorProxy {
 
 #[derive(Deserialize, Serialize)]
 struct MotionPacket {
-    waypoints: Vec<Vec3>,
+    waypoints: Vec<Vec3A>,
     profile: MotionProfile,
 }
 

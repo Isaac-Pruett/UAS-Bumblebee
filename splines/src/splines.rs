@@ -1,20 +1,20 @@
-use glam::Vec3;
+use glam::Vec3A;
 
 pub struct BezierN {
-    pub start: Vec3,
-    pub controls: Vec<Vec3>,
-    pub end: Vec3,
+    pub start: Vec3A,
+    pub controls: Vec<Vec3A>,
+    pub end: Vec3A,
 }
 
 impl BezierN {
-    pub fn new(start: Vec3, controls: Vec<Vec3>, end: Vec3) -> Self {
+    pub fn new(start: Vec3A, controls: Vec<Vec3A>, end: Vec3A) -> Self {
         BezierN {
             start,
             controls,
             end,
         }
     }
-    pub fn interp(&self, resolution: u32) -> Vec<Vec3> {
+    pub fn interp(&self, resolution: u32) -> Vec<Vec3A> {
         let ctrls = self.points();
 
         (0..=resolution)
@@ -25,25 +25,25 @@ impl BezierN {
             .collect()
     }
 
-    pub fn points(&self) -> Vec<Vec3> {
+    pub fn points(&self) -> Vec<Vec3A> {
         std::iter::once(self.start)
             .chain(self.controls.iter().copied())
             .chain(std::iter::once(self.end))
             .collect()
     }
 
-    pub fn concat(&self, next_controls: Vec<Vec3>, next_end: Vec3) -> BezierN {
+    pub fn concat(&self, next_controls: Vec<Vec3A>, next_end: Vec3A) -> BezierN {
         BezierN::new(self.end, next_controls, next_end)
     }
 
-    pub fn concat_to(&self, next: &BezierN) -> Vec<Vec3> {
+    pub fn concat_to(&self, next: &BezierN) -> Vec<Vec3A> {
         self.points()
             .into_iter()
             .chain(next.points().into_iter().skip(1))
             .collect()
     }
 
-    pub fn smooth_next(&self, controls: Vec<Vec3>, end: Vec3) -> BezierN {
+    pub fn smooth_next(&self, controls: Vec<Vec3A>, end: Vec3A) -> BezierN {
         let mut controls = controls;
 
         if let Some(last_control) = self.controls.last() {
@@ -54,24 +54,24 @@ impl BezierN {
     }
 }
 
-fn bezier(points: &[Vec3], t: f32) -> Vec3 {
+fn bezier(points: &[Vec3A], t: f32) -> Vec3A {
     if points.len() == 1 {
         return points[0];
     }
 
-    let next: Vec<Vec3> = points.windows(2).map(|w| w[0].lerp(w[1], t)).collect();
+    let next: Vec<Vec3A> = points.windows(2).map(|w| w[0].lerp(w[1], t)).collect();
 
     bezier(&next, t)
 }
 
 pub struct Spline {
     curves: Vec<BezierN>,
-    passthrus: Vec<Vec3>,
-    pub points: Vec<Vec3>,
+    passthrus: Vec<Vec3A>,
+    pub points: Vec<Vec3A>,
 }
 
 impl Spline {
-    pub fn new(waypoints: Vec<Vec3>, energy_to_speed: f32, resolution: u32) -> Self {
+    pub fn new(waypoints: Vec<Vec3A>, energy_to_speed: f32, resolution: u32) -> Self {
         let curves = Spline::build_spline(&waypoints, BezierCostMode::TENSIONED(energy_to_speed));
 
         let mut interpolated = Vec::new();
@@ -89,7 +89,7 @@ impl Spline {
 
     // get the cost from tangent vector at point i in points
     #[inline]
-    fn vec_from_cost_at_idx(points: &[Vec3], i: usize, cost_mode: BezierCostMode) -> Vec3 {
+    fn vec_from_cost_at_idx(points: &[Vec3A], i: usize, cost_mode: BezierCostMode) -> Vec3A {
         assert!(points.len() >= 2);
         match cost_mode {
             BezierCostMode::UNIFORM => Spline::tangent_at_energy(points, i),
@@ -101,7 +101,7 @@ impl Spline {
 
     //energy
     #[inline]
-    fn tangent_at_energy(points: &[Vec3], i: usize) -> Vec3 {
+    fn tangent_at_energy(points: &[Vec3A], i: usize) -> Vec3A {
         if i == 0 {
             points[1] - points[0]
         } else if i == points.len() - 1 {
@@ -113,7 +113,7 @@ impl Spline {
 
     //velo
     #[inline]
-    fn tangent_at_velo(points: &[Vec3], i: usize) -> Vec3 {
+    fn tangent_at_velo(points: &[Vec3A], i: usize) -> Vec3A {
         if i == 0 {
             points[1] - points[0]
         } else if i == points.len() - 1 {
@@ -130,18 +130,18 @@ impl Spline {
     }
 
     #[inline]
-    fn tangent_at_tension(points: &[Vec3], i: usize, tension: f32) -> Vec3 {
+    fn tangent_at_tension(points: &[Vec3A], i: usize, tension: f32) -> Vec3A {
         let energy = Spline::tangent_at_energy(points, i);
         let velo = Spline::tangent_at_velo(points, i);
 
         energy.lerp(velo, tension.clamp(0.0, 1.0))
     }
 
-    fn cubic_from_tangents(p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3) -> BezierN {
+    fn cubic_from_tangents(p0: Vec3A, p1: Vec3A, v0: Vec3A, v1: Vec3A) -> BezierN {
         BezierN::new(p0, vec![p0 + v0 / 3.0, p1 - v1 / 3.0], p1)
     }
 
-    pub fn build_spline(points: &[Vec3], cost_mode: BezierCostMode) -> Vec<BezierN> {
+    pub fn build_spline(points: &[Vec3A], cost_mode: BezierCostMode) -> Vec<BezierN> {
         if points.len() < 2 {
             return Vec::new();
         }

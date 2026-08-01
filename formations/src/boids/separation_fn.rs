@@ -1,12 +1,12 @@
-use ::glam::Vec3;
+use ::glam::Vec3A;
 
 pub fn separation_fn(
-    x_particular: Vec3,
+    x_particular: Vec3A,
     radial_offset: f32,
     max_sep_rad: f32,
-    x_others: &[Vec3],
-) -> Vec3 {
-    let mut separation = Vec3::ZERO;
+    x_others: &[Vec3A],
+) -> Vec3A {
+    let mut separation = Vec3A::ZERO;
 
     for other in x_others {
         let delta = x_particular - *other;

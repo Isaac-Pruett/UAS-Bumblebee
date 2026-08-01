@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use glam::Vec3;
+use glam::Vec3A;
 use mavlink::dialects::common::{MavCmd, MavMessage, MavResult};
 use serde::{Deserialize, Serialize};
 
@@ -137,7 +137,7 @@ pub struct LandCommand {
     pub descend_speed_m_s: f32,
     pub yaw: f32,
     pub acceptance_rad_m: f32,
-    pub coords: Vec3,
+    pub coords: Vec3A,
 }
 
 async fn register_land(session: &Session, handle: &MavlinkHandle, ack_router: MavlinkAckRouter) {

@@ -1,4 +1,4 @@
-use ::glam::{Vec3, vec3};
+use ::glam::Vec3A;
 use formations::boids::boid::Boid;
 use formations::boids::cohesion_fn::cohesion_fn;
 use formations::boids::separation_fn::separation_fn;
@@ -16,16 +16,16 @@ fn draw_boid(b: &Boid) {
 
 #[macroquad::main("Boids Viewer")]
 async fn main() {
-    let mut ctr = vec3(screen_width() / 2.0, screen_height() / 2.0, 0.0);
+    let mut ctr = Vec3A::new(screen_width() / 2.0, screen_height() / 2.0, 0.0);
 
     let spacing = 40.0;
     let center_index = (NUM_BOIDS as f32 - 1.0) / 2.0;
 
     let mut boids: Vec<Boid> = (0..NUM_BOIDS)
         .map(|i| Boid {
-            pos: ctr + vec3((i as f32 - center_index) * spacing, 0.0, 0.0),
-            velo: Vec3::ZERO,
-            acc: Vec3::ZERO,
+            pos: ctr + Vec3A::new((i as f32 - center_index) * spacing, 0.0, 0.0),
+            velo: Vec3A::ZERO,
+            acc: Vec3A::ZERO,
         })
         .collect();
 
@@ -50,7 +50,7 @@ async fn main() {
         let center_index = (boids.len() as f32 - 1.0) / 2.0;
 
         for (i, boid) in boids.iter_mut().enumerate() {
-            let other_positions: Vec<Vec3> = snapshot
+            let other_positions: Vec<Vec3A> = snapshot
                 .iter()
                 .enumerate()
                 .filter(|(j, _)| *j != i)
@@ -69,7 +69,7 @@ async fn main() {
             let height = (rows - 1) as f32 * spacing;
 
             let desired_position = ctr
-                + vec3(
+                + Vec3A::new(
                     col as f32 * spacing - width / 2.0,
                     row as f32 * spacing - height / 2.0,
                     0.0,
