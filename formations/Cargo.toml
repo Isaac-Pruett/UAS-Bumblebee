@@ -16,12 +16,12 @@ tokio = { version = "1.49.0", features = ["full"] }
 zenoh = {version = ">=1.9", features = ["shared-memory"]}
 zenoh-ext = ">=1.9"
 
-macroquad = { version = "0.4", optional = true }
 
 serde_json = "1.0.151"
+kiss3d = { version = "0.45", optional = true }
 
 [features]
-viz = ["dep:macroquad"]
+viz = ["dep:kiss3d"]
 
 [[bin]]
 name = "formation_viewer"

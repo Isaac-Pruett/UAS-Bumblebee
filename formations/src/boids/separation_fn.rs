@@ -1,25 +1,29 @@
-use ::glam::Vec3A;
+use glam::Vec3A;
 
-pub fn separation_fn(
-    x_particular: Vec3A,
-    radial_offset: f32,
-    max_sep_rad: f32,
-    x_others: &[Vec3A],
+pub fn repulsion_fn(
+    position: Vec3A,
+    desired_clearance: f32,
+    influence_radius: f32,
+    obstacles: &[Vec3A],
 ) -> Vec3A {
-    let mut separation = Vec3A::ZERO;
+    let mut repulsion = Vec3A::ZERO;
+    let influence_radius_sq = influence_radius * influence_radius;
 
-    for other in x_others {
-        let delta = x_particular - *other;
-        let distance = delta.length();
+    for obstacle in obstacles {
+        let delta = position - *obstacle;
+        let distance_sq = delta.length_squared();
 
-        if distance > 0.0 && distance < max_sep_rad {
-            let error = radial_offset - distance;
+        if distance_sq <= f32::EPSILON || distance_sq >= influence_radius_sq {
+            continue;
+        }
 
-            if error > 0.0 {
-                separation += delta.normalize() * error;
-            }
+        let distance = distance_sq.sqrt();
+        let penetration = desired_clearance - distance;
+
+        if penetration > 0.0 {
+            repulsion += delta / distance * penetration;
         }
     }
 
-    separation
+    repulsion
 }
