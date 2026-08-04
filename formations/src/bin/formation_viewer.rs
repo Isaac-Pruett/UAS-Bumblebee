@@ -3,23 +3,65 @@ use std::time::Instant;
 use ::glam::Vec3A;
 use formations::boids::boid::Boid;
 use formations::boids::cohesion_fn::cohesion_fn;
-use formations::boids::separation_fn::repulsion_fn;
+use formations::boids::corrections::enforce_hard_separation;
+use formations::boids::repulsion_fn::repulsion_fn;
 use kiss3d::prelude::*;
 
-const NUM_BOIDS: usize = 20;
+const NUM_BOIDS: usize = 5;
 
 const BOID_RADIUS: f32 = 10.0;
 const MAX_SPEED: f32 = 200.0;
 const MAX_ACCEL: f32 = 500.0;
-const SEPARATION_RADIUS: f32 = 80.0;
+const SEPARATION_RADIUS: f32 = 50.0;
+
+const HARD_SEPARATION_RADIUS: f32 = 20.0; // hard  — e.g. 2-3x BOID_RADIUS
 
 const COLLISION_ITERATIONS: usize = 3;
 const COLLISION_MARGIN: f32 = 2.0;
 const COLLISION_EPSILON: f32 = 0.5;
 
+/// Radius of the ring boids sit on, equidistant from `ctr`. Keep this
+/// comfortably above SEPARATION_RADIUS or neighboring boids on the ring
+/// will sit inside each other's soft repulsion zone at rest — same
+/// "hard limit radius vs soft radius" trap discussed earlier, just now
+/// governing ring spacing instead of grid spacing.
+const RING_RADIUS: f32 = 120.0;
+
 /// Converts the simulation's Vec3A into kiss3d's Vec3.
 fn render_vec(v: Vec3A) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
+}
+
+fn create_rendering_boid(scene: &mut SceneNode3d, boid: &Boid) -> (SceneNode3d, SceneNode3d) {
+    let mut body = scene.add_sphere(BOID_RADIUS);
+    body.set_color(RED);
+    body.set_position(render_vec(boid.pos));
+
+    let mut direction = scene.add_sphere(BOID_RADIUS / 2.0);
+    direction.set_color(WHITE);
+    direction.set_position(render_vec(boid.pos));
+    (body, direction)
+}
+
+/// Desired position for boid `index` of `count`, equidistant from
+/// `center` on a circle of `radius` in the XY plane. Evenly spaced by
+/// angle, so consecutive indices are also evenly spaced by arc length —
+/// this only holds true in the plane; if you need a 3D equidistant
+/// arrangement (a sphere) this needs a different formula (e.g. a Fibonacci
+/// sphere), since points evenly spaced by angle on a circle don't
+/// generalize to "evenly spaced on a sphere" the same way.
+fn sphere_offset(index: usize, count: usize, radius: f32) -> Vec3A {
+    const GOLDEN_ANGLE: f32 = std::f32::consts::PI * (3.0 - 2.236_068);
+
+    let y = 1.0 - (index as f32 / (count.max(1) - 1).max(1) as f32) * 2.0;
+    let radius_at_y = (1.0 - y * y).max(0.0).sqrt();
+    let theta = GOLDEN_ANGLE * index as f32;
+
+    Vec3A::new(
+        radius * theta.cos() * radius_at_y,
+        radius * y,
+        radius * theta.sin() * radius_at_y,
+    )
 }
 
 #[kiss3d::main]
@@ -30,7 +72,7 @@ async fn main() {
 
     // Looking straight down the Z axis makes the scene behave like the
     // original 2D Macroquad simulation while retaining a 3D scene.
-    let mut camera = OrbitCamera3d::new(Vec3::new(0.0, 0.0, 1_200.0), Vec3::ZERO);
+    let mut camera = OrbitCamera3d::new(Vec3::new(0.0, 0.0, 600.0), Vec3::ZERO);
 
     let mut scene = SceneNode3d::empty();
 
@@ -40,12 +82,9 @@ async fn main() {
 
     let mut ctr = Vec3A::ZERO;
 
-    let initial_spacing = 40.0;
-    let center_index = (NUM_BOIDS as f32 - 1.0) / 2.0;
-
     let mut boids: Vec<Boid> = (0..NUM_BOIDS)
         .map(|i| Boid {
-            pos: ctr + Vec3A::new((i as f32 - center_index) * initial_spacing, 0.0, 0.0),
+            pos: ctr + sphere_offset(i, NUM_BOIDS, RING_RADIUS),
             velo: Vec3A::ZERO,
             acc: Vec3A::ZERO,
         })
@@ -56,32 +95,10 @@ async fn main() {
     let mut direction_nodes = Vec::with_capacity(NUM_BOIDS);
 
     for boid in &boids {
-        let mut body = scene.add_sphere(BOID_RADIUS);
-        body.set_color(RED);
-        body.set_position(render_vec(boid.pos));
+        let (body, direction) = create_rendering_boid(&mut scene, boid);
+
         boid_nodes.push(body);
-
-        let mut direction = scene.add_sphere(BOID_RADIUS / 2.0);
-        direction.set_color(WHITE);
-        direction.set_position(render_vec(boid.pos));
         direction_nodes.push(direction);
-    }
-
-    // Coordinates are centered around the world origin instead of being
-    // expressed in screen pixels.
-    let obstacles = vec![
-        Vec3A::new(-100.0, 0.0, 0.0),
-        Vec3A::new(100.0, 50.0, 0.0),
-        Vec3A::new(200.0, -150.0, 0.0),
-    ];
-
-    let mut obstacle_nodes = Vec::with_capacity(obstacles.len());
-
-    for obstacle in &obstacles {
-        let mut node = scene.add_sphere(15.0);
-        node.set_color(BLUE);
-        node.set_position(render_vec(*obstacle));
-        obstacle_nodes.push(node);
     }
 
     let mut center_node = scene.add_sphere(5.0);
@@ -110,52 +127,56 @@ async fn main() {
         }
 
         let snapshot = boids.clone();
+        let snapshot_positions: Vec<Vec3A> = snapshot.iter().map(|b| b.pos).collect();
 
         for (i, boid) in boids.iter_mut().enumerate() {
-            let cols = 5;
-            let spacing = 60.0;
+            let desired_position = ctr + sphere_offset(i, NUM_BOIDS, RING_RADIUS);
 
-            let row = i / cols;
-            let col = i % cols;
-            let rows = NUM_BOIDS.div_ceil(cols);
-
-            let width = (cols - 1) as f32 * spacing;
-            let height = (rows - 1) as f32 * spacing;
-
-            let desired_position = ctr
-                + Vec3A::new(
-                    col as f32 * spacing - width / 2.0,
-                    height / 2.0 - row as f32 * spacing,
-                    0.0,
+            let separation = 160.0
+                * repulsion_fn(
+                    i,
+                    &snapshot_positions,
+                    SEPARATION_RADIUS,
+                    SEPARATION_RADIUS * 2.0,
                 );
-
-            let neighbors: Vec<Vec3A> = snapshot
-                .iter()
-                .enumerate()
-                .filter_map(|(j, other)| if j != i { Some(other.pos) } else { None })
-                .collect();
-
-            let separation =
-                180.0 * repulsion_fn(boid.pos, BOID_RADIUS * 2.0, SEPARATION_RADIUS, &neighbors);
-
-            let obstacle_avoidance = 220.0 * repulsion_fn(boid.pos, 30.0, 140.0, &obstacles);
-
             let cohesion = cohesion_fn(boid.pos, boid.velo, desired_position, 2.2, 1.8);
 
-            boid.acc = cohesion + separation + obstacle_avoidance;
-            boid.acc = boid.acc.clamp_length_max(MAX_ACCEL);
+            boid.acc = (cohesion + separation).clamp_length_max(MAX_ACCEL); // fresh, not accumulated
 
             boid.velo += boid.acc * dt;
             boid.velo = boid.velo.clamp_length_max(MAX_SPEED);
             boid.velo *= 0.995_f32.powf(dt * 60.0);
 
-            boid.pos += boid.velo * dt;
+            let proposed_pos = boid.pos + boid.velo * dt;
+
+            let others: Vec<Vec3A> = snapshot_positions
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, p)| *p)
+                .collect();
+
+            let corrected_pos = enforce_hard_separation(
+                proposed_pos,
+                &others,
+                HARD_SEPARATION_RADIUS, // much tighter than SEPARATION_RADIUS
+                COLLISION_ITERATIONS,
+                COLLISION_MARGIN,
+            );
+
+            // If the backstop moved us, velocity should reflect where we actually
+            // ended up — otherwise next frame's integration carries momentum
+            // toward a place we just decided not to go. Same fix as in
+            // horizon_planner.rs's sep_hit handling.
+            if corrected_pos != proposed_pos {
+                boid.velo = ((corrected_pos - boid.pos) / dt).clamp_length_max(MAX_SPEED);
+            }
+
+            boid.pos = corrected_pos;
         }
 
-        resolve_collisions(&mut boids);
-
         // Transient lines are submitted every frame.
-        draw_collisions(&mut window, &boids);
+        // draw_collisions(&mut window, &boids);
 
         // Synchronize the simulation state with the scene nodes.
         for ((boid, body), direction) in boids
@@ -165,103 +186,10 @@ async fn main() {
         {
             body.set_position(render_vec(boid.pos));
 
-            let heading = boid.velo.normalize_or_zero() * (BOID_RADIUS * 1.5);
+            let heading = boid.velo.normalize_or_zero() * BOID_RADIUS;
             direction.set_position(render_vec(boid.pos + heading));
         }
 
         center_node.set_position(render_vec(ctr));
-
-        // Keep these handles alive for the life of the scene.
-        let _ = &obstacle_nodes;
-    }
-}
-
-fn resolve_collisions(boids: &mut [Boid]) {
-    let minimum_distance = BOID_RADIUS * 2.0 + COLLISION_MARGIN;
-    let minimum_distance_squared = minimum_distance * minimum_distance;
-
-    for _ in 0..COLLISION_ITERATIONS {
-        let mut corrected_any = false;
-
-        for i in 0..boids.len() {
-            for j in (i + 1)..boids.len() {
-                let (left, right) = boids.split_at_mut(j);
-                let boid_a = &mut left[i];
-                let boid_b = &mut right[0];
-
-                let delta = boid_b.pos - boid_a.pos;
-                let distance_squared = delta.length_squared();
-
-                if distance_squared >= minimum_distance_squared {
-                    continue;
-                }
-
-                let distance = distance_squared.sqrt();
-
-                let direction = if distance > 0.0001 {
-                    delta / distance
-                } else {
-                    // Deterministic fallback for coincident boids.
-                    let angle = (i as f32 * 12.9898 + j as f32 * 78.233).sin();
-
-                    Vec3A::new(angle.cos(), angle.sin(), 0.0)
-                };
-
-                let penetration = minimum_distance - distance;
-
-                if penetration > COLLISION_EPSILON {
-                    corrected_any = true;
-
-                    // Slight overcorrection prevents residual overlap caused
-                    // by floating-point rounding.
-                    let correction = direction * penetration * 0.51;
-
-                    boid_a.pos -= correction;
-                    boid_b.pos += correction;
-                }
-
-                let relative_velocity = boid_b.velo - boid_a.velo;
-                let closing_speed = relative_velocity.dot(direction);
-
-                if closing_speed < 0.0 {
-                    let impulse = direction * closing_speed * 0.5;
-
-                    boid_a.velo += impulse;
-                    boid_b.velo -= impulse;
-                }
-            }
-        }
-
-        if !corrected_any {
-            break;
-        }
-    }
-}
-
-fn draw_collisions(window: &mut Window, boids: &[Boid]) {
-    let minimum_distance = BOID_RADIUS * 2.0;
-
-    for i in 0..boids.len() {
-        for j in (i + 1)..boids.len() {
-            let delta = boids[j].pos - boids[i].pos;
-
-            if delta.length() < minimum_distance {
-                let midpoint = (boids[i].pos + boids[j].pos) * 0.5;
-
-                window.draw_line(
-                    render_vec(boids[i].pos),
-                    render_vec(boids[j].pos),
-                    YELLOW,
-                    3.0,   // line width
-                    false, // screen-space width; not perspective-scaled
-                );
-
-                window.draw_point(
-                    render_vec(midpoint),
-                    YELLOW,
-                    10.0, // point size
-                );
-            }
-        }
     }
 }

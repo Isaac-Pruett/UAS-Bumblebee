@@ -1231,6 +1231,7 @@ dependencies = [
  "flatbuffers",
  "glam",
  "kiss3d",
+ "rayon",
  "rmp-serde",
  "serde",
  "serde_json",
