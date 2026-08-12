@@ -45,19 +45,19 @@ async fn main() {
     // Wait for subscribers to be ready
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let session2 = session.clone();
-    tokio::task::spawn(async move {
-        let subs = session2
-            .declare_subscriber("**")
-            .await
-            .expect("failed to init subs");
-        loop {
-            let s = subs.recv().ok();
-            if let Some(s) = s {
-                // println!("key: {}", s.key_expr());
-            }
-        }
-    });
+    // let session2 = session.clone();
+    // tokio::task::spawn(async move {
+    //     let subs = session2
+    //         .declare_subscriber("**")
+    //         .await
+    //         .expect("failed to init subs");
+    //     loop {
+    //         let s = subs.recv().ok();
+    //         if let Some(s) = s {
+    //             // println!("key: {}", s.key_expr());
+    //         }
+    //     }
+    // });
 
     // execute when cancelled
     tokio::signal::ctrl_c().await.ok();
