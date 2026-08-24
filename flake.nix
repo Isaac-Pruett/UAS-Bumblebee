@@ -9,7 +9,7 @@
 
     identity.url = "./identity";
 
-    sim_ctrl.url = ./sim_ctrl;
+    # sim_ctrl.url = ./sim_ctrl;
 
     zenohd.url = "./zenohd";
 
@@ -93,7 +93,7 @@
             python_demo = inputs.python-demo-sub.packages.${system}.default;
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
-            sim_ctrl = inputs.sim_ctrl.packages.${system}.default;
+            # sim_ctrl = inputs.sim_ctrl.packages.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -114,7 +114,7 @@
               runtimeInputs = [
                 self'.packages.mavlink
                 self'.packages.identity
-                self'.packages.sim_ctrl
+                # self'.packages.sim_ctrl
 
                 self'.packages.zenohd
               ];
@@ -131,7 +131,7 @@
                 sleep 0.5
                 spawn identity
                 spawn mavlink
-                spawn sim_ctrl
+                # spawn sim_ctrl
 
                 trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
                 wait "''${PIDS[@]:1}"

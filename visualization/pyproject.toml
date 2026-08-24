@@ -1,0 +1,11 @@
+[project]
+name = "visualization"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "eclipse-zenoh>=1.9.0",
+    "msgspec>=0.21.1",
+    "foxglove-sdk>=0.26.0",
+]

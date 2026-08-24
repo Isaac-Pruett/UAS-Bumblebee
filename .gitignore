@@ -13,6 +13,7 @@ target
 **/__pycache__
 
 ardupilot
+px4
 
 **/.ropeproject
 

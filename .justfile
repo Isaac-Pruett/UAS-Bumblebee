@@ -3,6 +3,8 @@ alias b := build
 alias c := clean
 alias d := develop
 alias n := new
+alias mv := rename
+alias rn := rename
 
 # default target, lists all targets available
 list:
@@ -34,33 +36,40 @@ new NAME TEMPLATE:
 develop:
     @nix develop
 
-ARDUPILOT_DIR := justfile_directory() + "/ardupilot"
-ARDUPILOT_REPO := "https://github.com/ArduPilot/ardupilot.git"
-SITL_DEPS := "pexpect empy MAVProxy future gnureadline wxPython matplotlib PyOpenGL pymavlink pillow requests opencv-python"
-VEHICLE := "ArduCopter"
-SITL_ARGS := "-w "
 
-clone-ardupilot:
-    @if [ ! -e {{ ARDUPILOT_DIR }} ]; then \
-        git clone --recurse-submodules {{ ARDUPILOT_REPO }} {{ ARDUPILOT_DIR }}; \
-    elif [ -d {{ ARDUPILOT_DIR }}/.git ]; then \
-        cd {{ ARDUPILOT_DIR }} && git submodule update --init --recursive; \
-    else \
-        echo "{{ ARDUPILOT_DIR }} exists but is not a git repo"; \
-        exit 1; \
-    fi
 
-setup-sitl: clone-ardupilot
-    @cd {{ ARDUPILOT_DIR }} && \
-        UV_VENV_CLEAR=1 uv venv .venv --python 3.12 && \
-        uv pip install {{ SITL_DEPS }}
+PX4_DIR := justfile_directory() + "/tmp/px4"
+PX4_REPO := "https://github.com/PX4/PX4-Autopilot.git"
+PX4_TARGET := "jsbsim"
+PYTHON := "python3"
 
-sitl:
-    @cd {{ ARDUPILOT_DIR }} && \
-        uv run python Tools/autotest/sim_vehicle.py -v {{ VEHICLE }} {{ SITL_ARGS }}
+clone-px4:
+  @if [ ! -e "{{ PX4_DIR }}" ]; then \
+    git clone --recursive "{{ PX4_REPO }}" "{{ PX4_DIR }}"; \
+  elif [ -d "{{ PX4_DIR }}/.git" ]; then \
+    cd "{{ PX4_DIR }}" && git submodule update --init --recursive; \
+  else \
+    echo "{{ PX4_DIR }} exists but is not a Git repository"; \
+    exit 1; \
+  fi
 
-MAVPROXY_ARGS := "--master=udp:127.0.0.1:14550 --console --map  --out=udp:127.0.0.1:14551"
+clean-sitl:
+    @rm -rf "{{ PX4_DIR }}/build/px4_sitl_default"
 
-mavproxy:
-    @cd {{ ARDUPILOT_DIR }} && \
-        uv run python -m MAVProxy.mavproxy {{ MAVPROXY_ARGS }}
+setup-sitl: clone-px4
+  @cd "{{ PX4_DIR }}" && \
+    "{{ PYTHON }}" -m venv .venv && \
+    .venv/bin/python -m pip install --upgrade pip && \
+    .venv/bin/python -m pip install -r Tools/setup/requirements.txt
+
+sitl: setup-sitl
+  @cd "{{ PX4_DIR }}" && \
+    PATH="$PWD/.venv/bin:$PATH" \
+    make px4_sitl "{{ PX4_TARGET }}"
+
+# Examples:
+# just sitl PX4_TARGET=gz_x500
+# just sitl PX4_TARGET=jsbsim_quadrotor_x
+
+rename OLD NEW:
+    @ ./.build_utils/clean.py {{ OLD }} {{ NEW }}

@@ -1,5 +1,5 @@
 {
-  description = "sim_ctrl — Python Zenoh Node";
+  description = "visualization — Python Zenoh Node";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     pyproject-nix = {
@@ -18,13 +18,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = {
-    nixpkgs,
-    pyproject-nix,
-    uv2nix,
-    pyproject-build-systems,
-    ...
-  }:
+  outputs =
+    {
+      nixpkgs,
+      pyproject-nix,
+      uv2nix,
+      pyproject-build-systems,
+      ...
+    }:
     let
       inherit (nixpkgs) lib;
       forAllSystems = lib.genAttrs lib.systems.flakeExposed;
@@ -58,7 +59,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           pythonSet = pythonSets.${system}.overrideScope editableOverlay;
-          virtualenv = pythonSet.mkVirtualEnv "sim_ctrl-dev-env" workspace.deps.all;
+          virtualenv = pythonSet.mkVirtualEnv "visualization-dev-env" workspace.deps.all;
         in
         {
           default = pkgs.mkShell {
@@ -73,13 +74,13 @@
             };
             shellHook = ''
               unset PYTHONPATH
-              export REPO_ROOT=$(git rev-parse --show-toplevel)/sim_ctrl
+              export REPO_ROOT=$(git rev-parse --show-toplevel)/visualization
             '';
           };
         }
       );
       packages = forAllSystems (system: {
-        default = pythonSets.${system}.mkVirtualEnv "sim_ctrl-env" workspace.deps.default;
+        default = pythonSets.${system}.mkVirtualEnv "visualization-env" workspace.deps.default;
       });
     };
 }
