@@ -10,6 +10,8 @@
     identity.url = "./identity";
 
     # sim_ctrl.url = ./sim_ctrl;
+    #
+    simulation.url = ./simulation;
 
     zenohd.url = "./zenohd";
 
@@ -94,6 +96,8 @@
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
             # sim_ctrl = inputs.sim_ctrl.packages.${system}.default;
+            #
+            simulation = inputs.simulation.packages.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -115,7 +119,7 @@
                 self'.packages.mavlink
                 self'.packages.identity
                 # self'.packages.sim_ctrl
-
+                self'.packages.simulation
                 self'.packages.zenohd
               ];
 
@@ -126,6 +130,10 @@
                 PIDS=()
 
                 spawn() { "$@" & PIDS+=($!); }
+
+                spawn px4-jsbsim
+
+                sleep 2.0
 
                 spawn zenohd -c ${routerCfg} 1>/dev/null
                 sleep 0.5

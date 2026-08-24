@@ -342,6 +342,22 @@
     },
     "nixpkgs_8": {
       "locked": {
+        "lastModified": 1787498568,
+        "narHash": "sha256-9i/VTdusq/+NM/tz+J1Re+ojkMB8MBf0QshnYfzHz30=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_9": {
+      "locked": {
         "lastModified": 1779414690,
         "narHash": "sha256-gOTcX/9MZVMUE0Xvb4IEcv+0TQJkZFNEnL757ljU360=",
         "owner": "NixOS",
@@ -362,6 +378,7 @@
         "identity": "identity",
         "mavlink": "mavlink",
         "nixpkgs": "nixpkgs_7",
+        "simulation": "simulation",
         "zenohd": "zenohd"
       }
     },
@@ -435,10 +452,24 @@
         "type": "github"
       }
     },
+    "simulation": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_8"
+      },
+      "locked": {
+        "path": "simulation",
+        "type": "path"
+      },
+      "original": {
+        "path": "simulation",
+        "type": "path"
+      },
+      "parent": []
+    },
     "zenohd": {
       "inputs": {
         "flake-parts": "flake-parts_4",
-        "nixpkgs": "nixpkgs_8"
+        "nixpkgs": "nixpkgs_9"
       },
       "locked": {
         "path": "./zenohd",
