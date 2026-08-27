@@ -12,8 +12,7 @@ target
 **/.venv
 **/__pycache__
 
-ardupilot
-px4
+.px4
 
 **/.ropeproject
 

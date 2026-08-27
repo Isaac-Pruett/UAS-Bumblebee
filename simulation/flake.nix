@@ -36,6 +36,7 @@
         {
           default = launcher;
           px4-jsbsim = launcher;
+          simulation = launcher;
         }
       );
 
@@ -45,6 +46,7 @@
           program = "${self.packages.${system}.default}/bin/px4-jsbsim";
         };
         px4-jsbsim = self.apps.${system}.default;
+        simulation = self.apps.${system}.default;
       });
 
       devShells = forAllSystems (
