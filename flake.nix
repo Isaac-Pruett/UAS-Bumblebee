@@ -93,7 +93,8 @@
             python_demo = inputs.python-demo-sub.packages.${system}.default;
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
-            sim_ctrl = inputs.sim_ctrl.packages.${system}.default;
+
+            simulation = inputs.simulation.devShells.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -141,6 +142,8 @@
             default = self'.packages.dev;
 
           };
+
+          devShells.simulation = inputs.simulation.devShells.${system}.default;
 
           devShells.default = pkgs.mkShell {
             packages = [
