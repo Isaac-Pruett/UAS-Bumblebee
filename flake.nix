@@ -9,7 +9,7 @@
 
     identity.url = "./identity";
 
-    sim_ctrl.url = ./sim_ctrl;
+    simulation.url = ./simulation;
 
     zenohd.url = "./zenohd";
 
