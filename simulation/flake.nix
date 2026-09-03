@@ -26,7 +26,9 @@
         pkgs.writeShellApplication {
           name = "simSwarm";
 
-          packages = with pkgs; [
+          excludeShellChecks = [ "SC1091" ];
+
+          runtimeInputs = with pkgs; [
             python313
 
             cmake

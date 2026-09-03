@@ -128,11 +128,11 @@
 
               text = ''
                 export ZENOH_CONFIG=${mkSharedConfig drone.name}
-                export MAVLINK_ENDPOINT="udpin:127.0.0.1:${toString drone.mavlinkPort}"
+                export MAVLINK_CONN="udpin:127.0.0.1:${toString drone.mavlinkPort}"
 
                 echo "Launching drone: ${drone.name}"
                 echo "Shared config: $ZENOH_CONFIG"
-                echo "MAVLink endpoint: $MAVLINK_ENDPOINT"
+                echo "MAVLink endpoint: $MAVLINK_CONN"
 
                 PIDS=()
 
@@ -183,7 +183,16 @@
             full_simulation = pkgs.writeShellApplication {
               name = "simulate";
 
-              runtimeInputs = [ self'.packages.zenohd ] ++ builtins.map mkDroneStack drones_in_sim;
+              runtimeInputs = [
+                self'.packages.zenohd
+              ]
+              ++ builtins.map mkDroneStack drones_in_sim
+              ++ [
+                (inputs.simulation.lib.mkSimSwarm {
+                  inherit pkgs;
+                  numSims = builtins.length drones_in_sim;
+                })
+              ];
 
               text = ''
                 PIDS=()
@@ -192,6 +201,10 @@
                   "$@" &
                   PIDS+=($!)
                 }
+
+                spawn simSwarm
+                sleep 3.5
+
 
                 # One shared Zenoh router for the entire simulation.
                 spawn zenohd -c ${routerCfg}
