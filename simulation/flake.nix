@@ -1,39 +1,34 @@
 {
-  description = "PolyUAS PX4 SIH development environment";
+
+  description = "PolyUAS Swarm Simulation";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, ... }:
     let
       systems = [
-        "aarch64-darwin"
-        "x86_64-darwin"
         "x86_64-linux"
         "aarch64-linux"
       ];
 
-      forAllSystems =
-        f:
-        nixpkgs.lib.genAttrs systems (
-          system:
-          f (
-            import nixpkgs {
-              inherit system;
-            }
-          )
-        );
-    in
-    {
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # Configurable package constructor
+      mkSimSwarm =
+        {
+          pkgs,
+          numSims ? 2,
+        }:
+        assert builtins.isInt numSims && numSims > 0;
+        pkgs.writeShellApplication {
+          name = "simSwarm";
+
           packages = with pkgs; [
-            # Python for PX4's Python tooling.
             python313
 
-            # PX4 build tools.
             cmake
             ninja
             gnumake
@@ -41,13 +36,12 @@
             git
             pkg-config
 
-            # Utilities used by PX4 tooling.
             rsync
             zip
             unzip
           ];
 
-          shellHook = ''
+          text = ''
             #
             # Find the root of the PolyUAS monorepo.
             #
@@ -55,7 +49,7 @@
 
             if [ -z "$REPO_ROOT" ]; then
               echo "ERROR: Could not determine repository root."
-              return 1
+              exit 1
             fi
 
             export POLYUAS_ROOT="$REPO_ROOT"
@@ -66,13 +60,13 @@
             if [ ! -d "$PX4_ROOT" ]; then
               echo "ERROR: PX4-Autopilot not found:"
               echo "  $PX4_ROOT"
-              return 1
+              exit 1
             fi
 
             if [ ! -f "$PX4_REQUIREMENTS" ]; then
               echo "ERROR: PX4 requirements file not found:"
               echo "  $PX4_REQUIREMENTS"
-              return 1
+              exit 1
             fi
 
             #
@@ -112,22 +106,31 @@
               echo "$REQ_HASH" > "$HASH_FILE"
             fi
 
-            echo
-            echo "PolyUAS PX4 SIH environment"
-            echo "---------------------------"
-            echo "Repository: $POLYUAS_ROOT"
-            echo "PX4:        $PX4_ROOT"
-            echo "Python:     $(which python)"
-            echo
-            echo "Build SIH:"
-            echo "  cd \$PX4_ROOT"
-            echo "  make px4_sitl_sih sihsim_quadx"
-            echo
-            echo "Run 2 SIH vehicles:"
-            echo "  cd \$PX4_ROOT"
-            echo "  ./Tools/simulation/sitl_multiple_run.sh 2 sihsim_quadx px4_sitl_sih"
-            echo
+            cd "$PX4_ROOT"
+
+            echo "Starting ${toString numSims} PX4 instances..."
+
+            ./Tools/simulation/sitl_multiple_run.sh \
+              ${toString numSims} \
+              sihsim_quadx \
+              px4_sitl_sih
           '';
+        };
+
+    in
+    {
+      #
+      # Export the constructor so other flakes can configure it.
+      #
+      lib.mkSimSwarm = mkSimSwarm;
+
+      #
+      # Standalone default: 2 drones.
+      #
+      packages = forAllSystems (pkgs: {
+        default = mkSimSwarm {
+          inherit pkgs;
+          numSims = 2;
         };
       });
     };
