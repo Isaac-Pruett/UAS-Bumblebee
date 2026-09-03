@@ -67,15 +67,15 @@
           drones_in_sim = [
             {
               name = "luke";
-              mavlinkPort = 14550;
+              mavlinkPort = 14540;
             }
             {
               name = "akshay";
-              mavlinkPort = 14551;
+              mavlinkPort = 14541;
             }
             {
               name = "reagan";
-              mavlinkPort = 14552;
+              mavlinkPort = 14542;
             }
           ];
 
@@ -175,7 +175,7 @@
 
             dev = mkDroneStack {
               name = default_drone_name;
-              mavlinkPort = 14450;
+              mavlinkPort = 14440;
             };
 
             default = self'.packages.dev;
