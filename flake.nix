@@ -64,18 +64,20 @@
 
           default_drone_name = "bingus_the_drone";
 
+          mkMavUDPConn = port: "udpin:127.0.0.1:${toString port}";
+
           drones_in_sim = [
             {
               name = "luke";
-              mavlinkPort = 14540;
+              mavlinkConn = mkMavUDPConn 14540;
             }
             {
               name = "akshay";
-              mavlinkPort = 14541;
+              mavlinkConn = mkMavUDPConn 14541;
             }
             {
               name = "reagan";
-              mavlinkPort = 14542;
+              mavlinkConn = mkMavUDPConn 14542;
             }
           ];
 
@@ -128,7 +130,7 @@
 
               text = ''
                 export ZENOH_CONFIG=${mkSharedConfig drone.name}
-                export MAVLINK_CONN="udpin:127.0.0.1:${toString drone.mavlinkPort}"
+                export MAVLINK_CONN="${drone.mavlinkConn}"
 
                 echo "Launching drone: ${drone.name}"
                 echo "Shared config: $ZENOH_CONFIG"
@@ -175,7 +177,7 @@
 
             dev = mkDroneStack {
               name = default_drone_name;
-              mavlinkPort = 14440;
+              mavlinkConn = 14440;
             };
 
             default = self'.packages.dev;
