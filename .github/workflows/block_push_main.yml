@@ -1,0 +1,36 @@
+name: Block Direct Push to Main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify push source
+        run: |
+          # If github.event.head_commit.id exists and github.event.commits length indicates a direct push, 
+          # or if we check the git log parent commits, we can determine the push type.
+          # GitHub Actions environment provides github.event details.
+          
+          echo "Checking if this push came from a Pull Request merge..."
+          
+          # A standard merge commit usually has a message like "Merge pull request #..." or "Merge branch..."
+          # However, checking the event object is safer. For a push event, if it's a direct push,
+          # the commit message won't match a PR merge pattern if users push directly.
+          
+          # A robust check: look at the push event's ref or commits.
+          # If it's an organization project, we can fail the build if it doesn't meet criteria.
+          
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          if [[ "$COMMIT_MSG" == *"Merge pull request"* || "$COMMIT_MSG" == *"Merge branch"* ]]; then
+            echo "Success: This push came from a merged Pull Request."
+            exit 0
+          else
+            echo "::error::DIRECT PUSH DETECTED! Pushing directly to the main branch is strictly forbidden on this repository."
+            echo "Please revert your local changes, create a new branch, and open a Pull Request."
+            exit 1
+          fi
