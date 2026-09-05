@@ -55,12 +55,19 @@
             fi
 
             export POLYUAS_ROOT="$REPO_ROOT"
-            export PX4_ROOT="$POLYUAS_ROOT/PX4-Autopilot"
+            export PX4_ROOT="$POLYUAS_ROOT/px4"
             export PX4_REQUIREMENTS="$PX4_ROOT/Tools/setup/requirements.txt"
             export PX4_VENV="$PX4_ROOT/.venv"
 
+
+            echo "Initializing Git submodules..."
+
+            git -C "$REPO_ROOT" submodule sync --recursive
+            git -C "$REPO_ROOT" submodule update --init --recursive
+
+
             if [ ! -d "$PX4_ROOT" ]; then
-              echo "ERROR: PX4-Autopilot not found:"
+              echo "ERROR: px4 submodule not found:"
               echo "  $PX4_ROOT"
               exit 1
             fi
@@ -111,6 +118,7 @@
             cd "$PX4_ROOT"
 
             echo "Starting ${toString numSims} PX4 instances..."
+
 
             ./Tools/simulation/sitl_multiple_run.sh \
               ${toString numSims} \
