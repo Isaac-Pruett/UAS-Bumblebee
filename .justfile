@@ -27,7 +27,7 @@ nuke: clean
     @rm -rf ardupilot
 
 # creates a new node from the script, with NAME as the node name, and TEMPLATE as the template name inside of .build_utils/templates
-new NAME TEMPLATE:
+new TEMPLATE NAME:
     @ ./.build_utils/create.py {{ NAME }} {{ TEMPLATE }}
 
 # opens the nix shell

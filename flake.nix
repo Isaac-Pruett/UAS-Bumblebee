@@ -25,6 +25,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    visualization = {
+      url = "./visualization";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -70,14 +74,34 @@
             {
               name = "luke";
               mavlinkConn = mkMavUDPConn 14540;
+
+              offset = {
+                north = 0.0;
+                east = 0.0;
+                up = 0.0;
+              };
             }
+
             {
               name = "akshay";
               mavlinkConn = mkMavUDPConn 14541;
+
+              offset = {
+                north = 0.0;
+                east = 15000.0;
+                up = 0.0;
+              };
             }
+
             {
               name = "reagan";
               mavlinkConn = mkMavUDPConn 14542;
+
+              offset = {
+                north = 15000.0;
+                east = 0.0;
+                up = 0.0;
+              };
             }
           ];
 
@@ -160,6 +184,7 @@
             python_demo = inputs.python-demo-sub.packages.${system}.default;
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
+            visualization = inputs.visualization.packages.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -177,7 +202,7 @@
 
             dev = mkDroneStack {
               name = default_drone_name;
-              mavlinkConn = 14440;
+              mavlinkConn = mkMavUDPConn 14540;
             };
 
             default = self'.packages.dev;
@@ -187,12 +212,22 @@
 
               runtimeInputs = [
                 self'.packages.zenohd
+                self'.packages.visualization
               ]
               ++ builtins.map mkDroneStack drones_in_sim
               ++ [
                 (inputs.simulation.lib.mkSimSwarm {
                   inherit pkgs;
-                  numSims = builtins.length drones_in_sim;
+
+                  vehicles = drones_in_sim;
+
+                  origin = {
+                    lat = 33.748997;
+                    lon = -84.387985;
+                    alt = 300.0;
+                  };
+
+                  backend = "sih";
                 })
               ];
 
@@ -212,6 +247,9 @@
                 spawn zenohd -c ${routerCfg}
                 sleep 0.5
 
+                spawn visualization
+                sleep 0.5
+
                 ${builtins.concatStringsSep "" (map (drone: "spawn execUAS_${drone.name}\n") drones_in_sim)}
 
                 trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
@@ -225,6 +263,7 @@
             packages = [
               self'.packages.zenohd
               self'.packages.dev
+              self'.packages.visualization
               pkgs.just
               pkgs.uv
             ];
