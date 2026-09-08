@@ -144,6 +144,16 @@
 
                   BUILD_PATH="$PX4_ROOT/build/px4_sitl_sih"
 
+                  echo "Building PX4 SIH..."
+
+                  make px4_sitl_sih
+
+                  if [ ! -x "$BUILD_PATH/bin/px4" ]; then
+                    echo "ERROR: PX4 binary was not produced:"
+                    echo "  $BUILD_PATH/bin/px4"
+                    exit 1
+                  fi
+
                   launch_vehicle() {
                     instance="$1"
                     north_m="$2"

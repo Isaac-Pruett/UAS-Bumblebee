@@ -88,7 +88,7 @@
 
               offset = {
                 north = 0.0;
-                east = 15000.0;
+                east = 150.0;
                 up = 0.0;
               };
             }
@@ -98,7 +98,7 @@
               mavlinkConn = mkMavUDPConn 14542;
 
               offset = {
-                north = 15000.0;
+                north = 150.0;
                 east = 0.0;
                 up = 0.0;
               };
@@ -185,6 +185,8 @@
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
             visualization = inputs.visualization.packages.${system}.default;
+
+            telemetry = inputs.visualization.packages.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 

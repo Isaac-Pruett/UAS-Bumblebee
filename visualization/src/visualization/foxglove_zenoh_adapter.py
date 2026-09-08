@@ -44,11 +44,11 @@ class MsgPackFoxgloveLogger:
 
 
 def sample_timestamp(sample: zenoh.Sample) -> Timestamp:
-    ns = (
-        time.time_ns()
-        if sample.timestamp is None
-        else sample.timestamp.get_time_as_ntp64().as_nanos()
-    )
+    if sample.timestamp is None:
+        ns = time.time_ns()
+    else:
+        dt = sample.timestamp.get_time()
+        ns = int(dt.timestamp() * 1_000_000_000)
 
     return Timestamp(
         sec=ns // 1_000_000_000,

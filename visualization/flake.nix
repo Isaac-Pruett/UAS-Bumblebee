@@ -18,13 +18,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = {
-    nixpkgs,
-    pyproject-nix,
-    uv2nix,
-    pyproject-build-systems,
-    ...
-  }:
+  outputs =
+    {
+      nixpkgs,
+      pyproject-nix,
+      uv2nix,
+      pyproject-build-systems,
+      ...
+    }:
     let
       inherit (nixpkgs) lib;
       forAllSystems = lib.genAttrs lib.systems.flakeExposed;
@@ -78,8 +79,25 @@
           };
         }
       );
-      packages = forAllSystems (system: {
-        default = pythonSets.${system}.mkVirtualEnv "visualization-env" workspace.deps.default;
-      });
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          pythonSet = pythonSets.${system};
+
+          virtualenv = pythonSet.mkVirtualEnv "visualization-env" workspace.deps.default;
+
+          visualization = pkgs.writeShellApplication {
+            name = "visualization";
+            text = ''
+              exec ${virtualenv}/bin/visualization "$@"
+            '';
+          };
+        in
+        {
+          default = visualization;
+          inherit visualization;
+        }
+      );
     };
 }
