@@ -106,8 +106,6 @@ def main():
         "**/mavlink/telemetry/pos/global/int", handler=coords_handler.log
     )
 
-    origin_setter = session.declare_publisher("**/mavlink/origin/set")
-
     # coords_sub_for_origin_setting = session.declare_subscriber(
     #     "**/mavlink/telemetry/pos/global/int",
     # )
@@ -119,8 +117,19 @@ def main():
     # Wait for subscribers to be ready
     sleep(0.5)
 
-    origin = Coords(337_489_970, -843_879_850, 300)
-    origin_setter.put(msgspec.msgpack.encode(origin))
+    origin = Coords(
+        337_489_970,
+        -843_879_850,
+        300_000,
+    )
+
+    payload = msgspec.msgpack.encode(origin)
+
+    for vehicle in ["akshay", "luke", "reagan"]:
+        session.put(
+            f"{vehicle}/mavlink/origin/set",
+            payload,
+        )
 
     while True:
         foxglove.log("/sim_alive", {"time": time.time()})
