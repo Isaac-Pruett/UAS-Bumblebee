@@ -25,8 +25,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    visualization = {
-      url = "./visualization";
+    telemetry = {
+      url = "./telemetry";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -184,9 +184,7 @@
             python_demo = inputs.python-demo-sub.packages.${system}.default;
             mavlink = inputs.mavlink.packages.${system}.default;
             identity = inputs.identity.packages.${system}.default;
-            visualization = inputs.visualization.packages.${system}.default;
-
-            telemetry = inputs.visualization.packages.${system}.default;
+            telemetry = inputs.telemetry.packages.${system}.default;
 
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -214,7 +212,7 @@
 
               runtimeInputs = [
                 self'.packages.zenohd
-                self'.packages.visualization
+                self'.packages.telemetry
               ]
               ++ builtins.map mkDroneStack drones_in_sim
               ++ [
@@ -249,7 +247,7 @@
                 spawn zenohd -c ${routerCfg}
                 sleep 0.5
 
-                spawn visualization
+                spawn telemetry
                 sleep 0.5
 
                 ${builtins.concatStringsSep "" (map (drone: "spawn execUAS_${drone.name}\n") drones_in_sim)}
@@ -265,7 +263,7 @@
             packages = [
               self'.packages.zenohd
               self'.packages.dev
-              self'.packages.visualization
+              self'.packages.telemetry
               pkgs.just
               pkgs.uv
             ];

@@ -315,15 +315,15 @@
     "pyproject-build-systems": {
       "inputs": {
         "nixpkgs": [
-          "visualization",
+          "telemetry",
           "nixpkgs"
         ],
         "pyproject-nix": [
-          "visualization",
+          "telemetry",
           "pyproject-nix"
         ],
         "uv2nix": [
-          "visualization",
+          "telemetry",
           "uv2nix"
         ]
       },
@@ -344,7 +344,7 @@
     "pyproject-nix": {
       "inputs": {
         "nixpkgs": [
-          "visualization",
+          "telemetry",
           "nixpkgs"
         ]
       },
@@ -369,7 +369,7 @@
         "mavlink": "mavlink",
         "nixpkgs": "nixpkgs_5",
         "simulation": "simulation",
-        "visualization": "visualization",
+        "telemetry": "telemetry",
         "zenohd": "zenohd"
       }
     },
@@ -462,11 +462,11 @@
     "uv2nix": {
       "inputs": {
         "nixpkgs": [
-          "visualization",
+          "telemetry",
           "nixpkgs"
         ],
         "pyproject-nix": [
-          "visualization",
+          "telemetry",
           "pyproject-nix"
         ]
       },
@@ -484,7 +484,7 @@
         "type": "github"
       }
     },
-    "visualization": {
+    "telemetry": {
       "inputs": {
         "nixpkgs": [
           "nixpkgs"
@@ -494,11 +494,11 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "path": "./visualization",
+        "path": "./telemetry",
         "type": "path"
       },
       "original": {
-        "path": "./visualization",
+        "path": "./telemetry",
         "type": "path"
       },
       "parent": []

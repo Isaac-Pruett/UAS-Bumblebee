@@ -14,13 +14,13 @@ from foxglove.messages import (
     Vector3,
 )
 
-from visualization.foxglove_zenoh_adapter import (
+from telemetry.foxglove_zenoh_adapter import (
     MsgPackFoxgloveAdapter,
     MsgPackFoxgloveLogger,
     sample_timestamp,
 )
-from visualization.serializations.coords import Coords, coords_to_location
-from visualization.serializations.Vec3 import Vec3
+from telemetry.serializations.coords import Coords, coords_to_location
+from telemetry.serializations.Vec3 import Vec3
 
 foxglove.start_server()
 

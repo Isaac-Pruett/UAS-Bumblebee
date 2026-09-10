@@ -2,7 +2,7 @@ import msgspec
 import zenoh
 from foxglove.messages import LocationFix
 
-from visualization.foxglove_zenoh_adapter import sample_timestamp
+from telemetry.foxglove_zenoh_adapter import sample_timestamp
 
 
 class Coords(msgspec.Struct, array_like=True):
