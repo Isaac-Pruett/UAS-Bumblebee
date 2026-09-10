@@ -37,6 +37,7 @@ async fn main() {
     let mavlink_conn_str =
         std::env::var("MAVLINK_CONN").unwrap_or_else(|_| "udpin:0.0.0.0:14551".to_string());
     let mavconn = mav_connect(&mavlink_conn_str).await;
+    println!("{namespace} connected to mavlink on '{mavlink_conn_str}'");
 
     let mut router = MavlinkRouter::new();
     let telem_handles = telem::declare_all(&session, &mut router).await;
