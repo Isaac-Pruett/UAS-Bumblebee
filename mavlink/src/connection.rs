@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
 use mavlink::{
     AsyncMavConnection, MavlinkVersion,
@@ -114,6 +114,12 @@ pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
     mavconn
 }
 
+use std::sync::OnceLock;
+
+use crate::control::launch_land::LaunchErrors;
+
+pub static SYSTEM_ID: OnceLock<u8> = OnceLock::new();
+
 // -------------------------------------------------------------------
 // Task setup
 //
@@ -140,6 +146,19 @@ pub fn setup_mavlink_task(
 
         rt.block_on(async move {
             let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(1));
+
+            'init_sys_id : loop {
+                let result = conn.recv().await;
+                match result {
+                    Ok((header, msg)) => {
+                        if let MavMessage::HEARTBEAT(_) = msg {
+                            SYSTEM_ID.set(header.system_id).ok();
+                            break 'init_sys_id;
+                        }
+                    }
+                    _ => {}
+                }
+            }
 
             loop {
                 tokio::select! {
@@ -169,6 +188,8 @@ pub fn setup_mavlink_task(
                     result = conn.recv() => {
                         match result {
                             Ok((_header, msg)) => {
+
+
                                 // Fan out to every matching subscription.
                                 // Only subscribers whose `matches` predicate
                                 // returns true receive a clone; the last
@@ -210,32 +231,12 @@ impl MavlinkAckRouter {
     pub async fn wait_ack(
         &mut self,
         timeout: Duration,
-    ) -> Result<mavlink::dialects::common::MavResult, TryRecvError> {
-        let deadline = Instant::now() + timeout;
-
-        loop {
-            match self.rx.try_recv() {
-                Ok(MavMessage::COMMAND_ACK(data)) => {
-                    return Ok(data.result);
-                }
-
-                Ok(_) => {
-                    // Should not happen if router filter is correct.
-                    continue;
-                }
-
-                Err(TryRecvError::Empty) => {
-                    if Instant::now() >= deadline {
-                        return Err(TryRecvError::Empty);
-                    }
-
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-
-                Err(TryRecvError::Disconnected) => {
-                    return Err(TryRecvError::Disconnected);
-                }
-            }
+    ) -> Result<mavlink::dialects::common::MavResult, LaunchErrors> {
+        match tokio::time::timeout(timeout, self.rx.recv()).await {
+            Ok(Some(MavMessage::COMMAND_ACK(data))) => Ok(data.result),
+            Ok(Some(_)) => unreachable!("ACK router received non-ACK message"),
+            Ok(None) => Err(LaunchErrors::AckRejected),
+            Err(_) => Err(LaunchErrors::AckTimeout),
         }
     }
 }

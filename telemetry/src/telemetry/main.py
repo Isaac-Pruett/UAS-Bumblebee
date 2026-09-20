@@ -115,7 +115,7 @@ def main():
     # )
 
     # Wait for subscribers to be ready
-    sleep(0.5)
+    sleep(5)
 
     origin = Coords(
         337_489_970,

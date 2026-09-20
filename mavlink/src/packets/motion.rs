@@ -3,6 +3,8 @@ use std::f32;
 use mavlink::dialects::common::{PositionTargetTypemask, SET_POSITION_TARGET_LOCAL_NED_DATA};
 use serde::{Deserialize, Serialize};
 
+use crate::connection::SYSTEM_ID;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Movement {
     pub x: f32,
@@ -30,7 +32,7 @@ impl Movement {
         if let Some(mask) = PositionTargetTypemask::from_bits(f) {
             Some(SET_POSITION_TARGET_LOCAL_NED_DATA {
                 time_boot_ms: 0,
-                target_system: 1,
+                target_system: *SYSTEM_ID.get().unwrap_or(&0),
                 target_component: 1,
                 coordinate_frame: mavlink::dialects::common::MavFrame::MAV_FRAME_LOCAL_NED, // WILL BE OVERRIDDEN
                 type_mask: mask,

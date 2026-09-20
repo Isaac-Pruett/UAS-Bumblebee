@@ -4,7 +4,7 @@ use mavlink::dialects::common::{COMMAND_INT_DATA, COMMAND_LONG_DATA, MavCmd, Mav
 use tokio::sync::{mpsc::Sender, watch::Receiver};
 use zenoh::{Session, pubsub::Subscriber};
 
-use crate::connection::{MavlinkHandle, MavlinkRouter};
+use crate::connection::{MavlinkHandle, MavlinkRouter, SYSTEM_ID};
 
 pub struct PwmController {
     pub pin: u8,
@@ -75,7 +75,7 @@ impl PwmController {
                             param5: if pin % 6 == 4 { value } else { f32::NAN },
                             param6: if pin % 6 == 5 { value } else { f32::NAN },
                             param7: ((pin * 37) >> 8) as f32,
-                            target_system: 1,
+                            target_system: *SYSTEM_ID.get().unwrap_or(&0),
                             target_component: 1,
                             confirmation: 0,
                         });

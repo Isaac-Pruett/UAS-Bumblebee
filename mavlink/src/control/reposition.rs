@@ -1,7 +1,10 @@
 use mavlink::dialects::common::{COMMAND_INT_DATA, MavCmd, MavFrame::MAV_FRAME_GLOBAL, MavMessage};
 use zenoh::sample::Sample;
 
-use crate::{connection::MavlinkHandle, packets::waypoint::Waypoint};
+use crate::{
+    connection::{MavlinkHandle, SYSTEM_ID},
+    packets::waypoint::Waypoint,
+};
 
 pub async fn declare_goto_waypoint_sub(session: &zenoh::Session, mavconn: MavlinkHandle) {
     session
@@ -24,7 +27,7 @@ pub async fn declare_goto_waypoint_sub(session: &zenoh::Session, mavconn: Mavlin
                                     y: waypt.coord.lon_deg_e7,
                                     z: waypt.coord.alt_mm as f32,
                                     command: MavCmd::MAV_CMD_DO_REPOSITION,
-                                    target_system: 1,    // Fixed from hardcoded 1
+                                    target_system: *SYSTEM_ID.get().unwrap_or(&0), // Fixed from hardcoded 1
                                     target_component: 0, // Fixed from hardcoded 0
                                     frame: MAV_FRAME_GLOBAL,
                                     current: 0,

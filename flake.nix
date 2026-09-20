@@ -88,7 +88,7 @@
 
               offset = {
                 north = 0.0;
-                east = 150.0;
+                east = 5.0;
                 up = 0.0;
               };
             }
@@ -98,7 +98,7 @@
               mavlinkConn = mkMavUDPConn 14542;
 
               offset = {
-                north = 150.0;
+                north = 5.0;
                 east = 0.0;
                 up = 0.0;
               };

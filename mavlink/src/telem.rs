@@ -1,10 +1,9 @@
 use crate::connection::MavlinkRouter;
-use crate::control::movement;
 use crate::packets::coords::Coords;
 use crate::packets::heartbeat::Heartbeat;
 
 use glam::Vec3;
-use mavlink::dialects::common::{MavAutopilot, MavMessage, MavModeFlag, MavType};
+use mavlink::dialects::common::{MavAutopilot, MavMessage, MavModeFlag};
 use serde::Serialize;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Instant;
@@ -129,6 +128,7 @@ pub enum FlightMode {
 
 pub static AUTOPILOT_MODE: LazyLock<RwLock<Option<AutopilotMode>>> =
     LazyLock::new(|| RwLock::new(None));
+
 /// Register all telemetry subscriptions and spawn their publisher tasks.
 /// Must be called before `setup_mavlink_task` consumes the router.
 /// Returns all JoinHandles so the caller can await them for shutdown.
@@ -214,6 +214,22 @@ pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<J
             alt_mm: data.alt,
         }),
         _ => None,
+    });
+
+    let origin_rx = router.subscribe(|msg| match msg {
+        MavMessage::GPS_GLOBAL_ORIGIN(data) => Some(data.clone()),
+        _ => None,
+    });
+
+    tokio::spawn(async move {
+        let mut origin_rx = origin_rx;
+
+        while let Some(origin) = origin_rx.recv().await {
+            println!(
+                "GPS_GLOBAL_ORIGIN: lat={} lon={} alt={}",
+                origin.latitude, origin.longitude, origin.altitude,
+            );
+        }
     });
 
     vec![
