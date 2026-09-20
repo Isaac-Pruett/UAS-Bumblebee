@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use zenoh::Session;
 
 use crate::{
-    connection::{MavlinkAckRouter, MavlinkHandle},
+    connection::{MavlinkAckRouter, MavlinkHandle, SYSTEM_ID},
     telem::AUTOPILOT_MODE,
 };
 
@@ -62,7 +62,7 @@ pub async fn register_launch(
                             handle
                                 .send(MavMessage::COMMAND_LONG(
                                     mavlink::dialects::common::COMMAND_LONG_DATA {
-                                        target_system: 1,
+                                        target_system: *SYSTEM_ID.get().unwrap_or(&0),
                                         target_component: 1,
                                         command: MavCmd::MAV_CMD_NAV_TAKEOFF,
                                         confirmation: 0,
@@ -172,7 +172,7 @@ async fn register_land(session: &Session, handle: &MavlinkHandle, ack_router: Ma
                                     y: land_cmd.coords.y as i32,
                                     z: land_cmd.coords.z,
                                     command: MavCmd::MAV_CMD_NAV_LAND_LOCAL,
-                                    target_system: 1,
+                                    target_system: *SYSTEM_ID.get().unwrap_or(&0),
                                     target_component: 1,
                                     frame:
                                         mavlink::dialects::common::MavFrame::MAV_FRAME_LOCAL_OFFSET_NED,
