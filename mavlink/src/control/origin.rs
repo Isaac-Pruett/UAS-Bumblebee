@@ -1,14 +1,14 @@
+use crate::get_session;
 #[allow(deprecated)] // mav gotta be mav
 use mavlink::dialects::common::{MavMessage, SET_GPS_GLOBAL_ORIGIN_DATA};
-use zenoh::Session;
 
 use crate::{
     connection::{MavlinkHandle, SYSTEM_ID},
     packets::coords::Coords,
 };
 
-pub async fn declare_origin_sub(session: &Session, mav_handle: MavlinkHandle) {
-    session
+pub async fn declare_origin_sub(mav_handle: MavlinkHandle) {
+    get_session()
         .declare_subscriber("origin/set")
         .callback(move |sample| {
             let mav_handle = mav_handle.clone();

@@ -4,7 +4,10 @@ use mavlink::dialects::common::{COMMAND_INT_DATA, COMMAND_LONG_DATA, MavCmd, Mav
 use tokio::sync::{mpsc::Sender, watch::Receiver};
 use zenoh::{Session, pubsub::Subscriber};
 
-use crate::connection::{MavlinkHandle, MavlinkRouter, SYSTEM_ID};
+use crate::{
+    connection::{MavlinkHandle, MavlinkRouter, SYSTEM_ID},
+    get_session,
+};
 
 pub struct PwmController {
     pub pin: u8,
@@ -29,7 +32,7 @@ static ACTUATOR_COUNT: LazyLock<u8> = LazyLock::new(|| {
 
 impl PwmController {
     /// Pin is 0-indexed
-    async fn new(pin: u8, mavconn: MavlinkHandle, session: &Session) -> Self {
+    async fn new(pin: u8, mavconn: MavlinkHandle) -> Self {
         let mut pwm = PwmController {
             pin,
             mavconn,
@@ -46,7 +49,7 @@ impl PwmController {
 
         pwm.mavconn.send(message).await.ok();
 
-        pwm.bind_subscriber(session).await;
+        pwm.bind_subscriber(get_session()).await;
 
         return pwm;
     }
@@ -110,7 +113,6 @@ pub async fn register_pwm_watchers(router: &mut MavlinkRouter) -> Vec<Receiver<O
 }
 
 pub async fn register_all_pwm_subs(
-    session: &Session,
     handle: MavlinkHandle,
     watchers: Vec<Receiver<Option<PinState>>>,
 ) -> Vec<PwmController> {
@@ -118,7 +120,7 @@ pub async fn register_all_pwm_subs(
 
     for i in 0..*ACTUATOR_COUNT {
         let handle = handle.clone();
-        let mut p = PwmController::new(i, handle, session).await;
+        let mut p = PwmController::new(i, handle).await;
         p.bind_watcher(watchers[i as usize].clone()).await;
         v.push(p);
     }

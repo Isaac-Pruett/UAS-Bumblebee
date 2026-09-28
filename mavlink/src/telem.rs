@@ -1,107 +1,28 @@
-use crate::connection::MavlinkRouter;
-use crate::packets::coords::Coords;
-use crate::packets::heartbeat::Heartbeat;
+use crate::{
+    connection::with_mavlink_router,
+    get_session,
+    packets::{coords::Coords, heartbeat::Heartbeat},
+};
 
 use glam::Vec3;
 use mavlink::dialects::common::{MavAutopilot, MavMessage, MavModeFlag};
 use serde::Serialize;
-use std::sync::{LazyLock, OnceLock};
-use std::time::Instant;
-use tokio::sync::{RwLock, mpsc, watch};
-use tokio::task::JoinHandle;
-use zenoh::Session;
-use zenoh::qos::Priority;
+use std::{
+    sync::{LazyLock, OnceLock},
+    time::Instant,
+};
+use tokio::{
+    sync::{mpsc, watch},
+    task::JoinHandle,
+};
+use zenoh::{Session, qos::Priority};
 
 pub static AUTOPILOT: OnceLock<MavAutopilot> = OnceLock::new();
 
-/// Spawn a Zenoh publisher that drains a typed mpsc channel.
-/// Use for topics where every message matters (e.g. heartbeat).
-pub async fn create_telem_topic_mpsc<T>(
-    session: &Session,
-    sensor_name: &str,
-    mut rx: mpsc::Receiver<T>,
-    is_express: bool,
-    priority: Priority,
-) -> JoinHandle<()>
-where
-    T: Serialize + Send + 'static,
-{
-    let topic_name = String::new() + "telemetry/" + sensor_name;
-
-    let publ = session
-        .declare_publisher(topic_name.clone())
-        .express(is_express)
-        .priority(priority)
-        .await
-        .expect("failed to declare publisher");
-
-    let mut buf = Vec::with_capacity(512);
-    tokio::spawn(async move {
-        while let Some(packet) = rx.recv().await {
-            buf.clear();
-            match rmp_serde::encode::write(&mut buf, &packet) {
-                Ok(()) => {
-                    if let Err(e) = publ.put(buf.as_slice()).await {
-                        eprintln!("Failed to publish telemetry on '{topic_name}': {e}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to serialize telemetry on '{topic_name}': {e}");
-                }
-            }
-        }
-        eprintln!("Telem topic '{topic_name}' channel closed, stopping.");
-    })
-}
-
-/// Spawn a Zenoh publisher backed by a watch channel.
-/// Only the latest value is published per iteration — stale intermediate
-/// values are discarded. Use for high-rate sensor streams (position, etc.)
-/// where only the current state matters.
-pub async fn create_telem_topic_watch<T>(
-    session: &Session,
-    sensor_name: &str,
-    mut rx: watch::Receiver<Option<T>>,
-    is_express: bool,
-    priority: Priority,
-) -> JoinHandle<()>
-where
-    T: Serialize + Send + Sync + Clone + 'static,
-{
-    let topic_name = String::new() + "telemetry/" + sensor_name;
-
-    let publ = session
-        .declare_publisher(topic_name.clone())
-        .express(is_express)
-        .priority(priority)
-        .await
-        .expect("failed to declare publisher");
-
-    let mut buf = Vec::with_capacity(512);
-    tokio::spawn(async move {
-        loop {
-            if rx.changed().await.is_err() {
-                eprintln!("Telem topic '{topic_name}' watch closed, stopping.");
-                break;
-            }
-
-            let packet = rx.borrow_and_update().clone();
-            let Some(packet) = packet else { continue };
-
-            buf.clear();
-            match rmp_serde::encode::write(&mut buf, &packet) {
-                Ok(()) => {
-                    if let Err(e) = publ.put(buf.as_slice()).await {
-                        eprintln!("Failed to publish telemetry on '{topic_name}': {e}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to serialize telemetry on '{topic_name}': {e}");
-                }
-            }
-        }
-    })
-}
+pub static AUTOPILOT_MODE: LazyLock<(
+    watch::Sender<Option<AutopilotMode>>,
+    watch::Receiver<Option<AutopilotMode>>,
+)> = LazyLock::new(|| watch::channel(None));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutopilotMode {
@@ -110,8 +31,7 @@ pub struct AutopilotMode {
 }
 
 impl AutopilotMode {
-    #[inline]
-    pub fn can_fly(&self) -> bool {
+    pub fn can_fly(self) -> bool {
         self.armed && matches!(self.mode, FlightMode::Guided | FlightMode::Offboard)
     }
 }
@@ -120,116 +40,221 @@ impl AutopilotMode {
 pub enum FlightMode {
     Manual,
     Stabilize,
-    Guided,   // ArduPilot
-    Offboard, // PX4
+    Guided,
+    Offboard,
     Auto,
     Unknown,
 }
 
-pub static AUTOPILOT_MODE: LazyLock<RwLock<Option<AutopilotMode>>> =
-    LazyLock::new(|| RwLock::new(None));
+pub fn autopilot_mode() -> Option<AutopilotMode> {
+    *AUTOPILOT_MODE.1.borrow()
+}
 
-/// Register all telemetry subscriptions and spawn their publisher tasks.
-/// Must be called before `setup_mavlink_task` consumes the router.
-/// Returns all JoinHandles so the caller can await them for shutdown.
-pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<JoinHandle<()>> {
-    let start = Instant::now();
+pub fn subscribe_autopilot_mode() -> watch::Receiver<Option<AutopilotMode>> {
+    AUTOPILOT_MODE.0.subscribe()
+}
 
-    // mpsc: every heartbeat event matters
-    let heartbeat_rx = router.subscribe(move |msg| match msg {
-        MavMessage::HEARTBEAT(data) => {
-            let res = AUTOPILOT.set(data.autopilot);
-            if res.is_ok() {
-                println!("mavlink: SET AUTOPILOT TO {:?}", data.autopilot)
+fn decode_flight_mode(
+    autopilot: MavAutopilot,
+    base_mode: MavModeFlag,
+    custom_mode: u32,
+) -> FlightMode {
+    match autopilot {
+        MavAutopilot::MAV_AUTOPILOT_PX4 => decode_px4_mode(custom_mode),
+
+        MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA => decode_ardupilot_mode(base_mode),
+
+        _ => FlightMode::Unknown,
+    }
+}
+
+fn decode_px4_mode(custom_mode: u32) -> FlightMode {
+    let main_mode = ((custom_mode >> 16) & 0xff) as u8;
+
+    match main_mode {
+        1 => FlightMode::Manual,
+        4 => FlightMode::Auto,
+        6 => FlightMode::Offboard,
+        7 => FlightMode::Stabilize,
+        _ => FlightMode::Unknown,
+    }
+}
+
+fn decode_ardupilot_mode(base_mode: MavModeFlag) -> FlightMode {
+    use MavModeFlag as Flag;
+
+    if base_mode.contains(Flag::MAV_MODE_FLAG_GUIDED_ENABLED) {
+        FlightMode::Guided
+    } else if base_mode.contains(Flag::MAV_MODE_FLAG_STABILIZE_ENABLED) {
+        FlightMode::Stabilize
+    } else if base_mode.contains(Flag::MAV_MODE_FLAG_MANUAL_INPUT_ENABLED) {
+        FlightMode::Manual
+    } else if base_mode.contains(Flag::MAV_MODE_FLAG_AUTO_ENABLED) {
+        FlightMode::Auto
+    } else {
+        FlightMode::Unknown
+    }
+}
+
+fn update_autopilot_state(autopilot: MavAutopilot, base_mode: MavModeFlag, custom_mode: u32) {
+    if AUTOPILOT.set(autopilot).is_ok() {
+        println!("mavlink: autopilot = {autopilot:?}");
+    }
+
+    let state = AutopilotMode {
+        armed: base_mode.contains(MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED),
+        mode: decode_flight_mode(autopilot, base_mode, custom_mode),
+    };
+
+    let _ = AUTOPILOT_MODE.0.send(Some(state));
+}
+
+async fn publish<T>(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    topic: &str,
+    buffer: &mut Vec<u8>,
+    packet: &T,
+) where
+    T: Serialize,
+{
+    buffer.clear();
+
+    if let Err(err) = rmp_serde::encode::write(&mut *buffer, packet) {
+        eprintln!("failed to serialize telemetry on '{topic}': {err}");
+        return;
+    }
+
+    if let Err(err) = publisher.put(buffer.as_slice()).await {
+        eprintln!("failed to publish telemetry on '{topic}': {err}");
+    }
+}
+
+pub fn create_telem_topic_mpsc<T>(
+    session: &Session,
+    sensor_name: &str,
+    mut rx: mpsc::Receiver<T>,
+    express: bool,
+    priority: Priority,
+) -> JoinHandle<()>
+where
+    T: Serialize + Send + 'static,
+{
+    let session = session.clone();
+    let topic = format!("telemetry/{sensor_name}");
+
+    tokio::spawn(async move {
+        let publisher = session
+            .declare_publisher(&topic)
+            .express(express)
+            .priority(priority)
+            .await
+            .expect("failed to declare telemetry publisher");
+
+        let mut buffer = Vec::with_capacity(512);
+
+        while let Some(packet) = rx.recv().await {
+            buffer.clear();
+
+            if let Err(err) = rmp_serde::encode::write(&mut buffer, &packet) {
+                eprintln!("failed to serialize telemetry on '{topic}': {err}");
+                continue;
             }
 
-            let base_mode = data.base_mode;
-            let custom_mode = data.custom_mode;
-            let autopilot = data.autopilot;
+            if let Err(err) = publisher.put(buffer.as_slice()).await {
+                eprintln!("failed to publish telemetry on '{topic}': {err}");
+            }
+        }
 
-            tokio::spawn(async move {
-                let mut mode = AUTOPILOT_MODE.write().await;
+        eprintln!("telemetry topic '{topic}' closed");
+    })
+}
 
-                *mode = Some(AutopilotMode {
-                    armed: base_mode.contains(MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED),
+pub fn create_telem_topic_watch<T>(
+    session: &Session,
+    sensor_name: &str,
+    mut rx: watch::Receiver<Option<T>>,
+    express: bool,
+    priority: Priority,
+) -> JoinHandle<()>
+where
+    T: Serialize + Send + Sync + Clone + 'static,
+{
+    let session = session.clone();
+    let topic = format!("telemetry/{sensor_name}");
 
-                    mode: match autopilot {
-                        MavAutopilot::MAV_AUTOPILOT_PX4 => {
-                            let main_mode = ((custom_mode >> 16) & 0xFF) as u8;
+    tokio::spawn(async move {
+        let publisher = session
+            .declare_publisher(&topic)
+            .express(express)
+            .priority(priority)
+            .await
+            .expect("failed to declare telemetry publisher");
 
-                            match main_mode {
-                                1 => FlightMode::Manual,
-                                7 => FlightMode::Stabilize,
-                                6 => FlightMode::Offboard,
-                                4 => FlightMode::Auto,
-                                _ => FlightMode::Unknown,
-                            }
-                        }
+        let mut buffer = Vec::with_capacity(512);
 
-                        MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA => {
-                            if base_mode.contains(MavModeFlag::MAV_MODE_FLAG_GUIDED_ENABLED) {
-                                FlightMode::Guided // order matters specifically here
-                            } else if base_mode
-                                .contains(MavModeFlag::MAV_MODE_FLAG_STABILIZE_ENABLED)
-                            {
-                                FlightMode::Stabilize
-                            } else if base_mode
-                                .contains(MavModeFlag::MAV_MODE_FLAG_MANUAL_INPUT_ENABLED)
-                            {
-                                FlightMode::Manual
-                            } else if base_mode.contains(MavModeFlag::MAV_MODE_FLAG_AUTO_ENABLED) {
-                                FlightMode::Auto // order matters specifically here
-                            } else {
-                                FlightMode::Unknown
-                            }
-                        }
+        while rx.changed().await.is_ok() {
+            let packet = {
+                let borrowed = rx.borrow_and_update();
+                borrowed.clone()
+            };
 
-                        _ => FlightMode::Unknown,
-                    },
-                });
-            });
+            let Some(packet) = packet else {
+                continue;
+            };
+
+            buffer.clear();
+
+            if let Err(err) = rmp_serde::encode::write(&mut buffer, &packet) {
+                eprintln!("failed to serialize telemetry on '{topic}': {err}");
+                continue;
+            }
+
+            if let Err(err) = publisher.put(buffer.as_slice()).await {
+                eprintln!("failed to publish telemetry on '{topic}': {err}");
+            }
+        }
+
+        eprintln!("telemetry topic '{topic}' closed");
+    })
+}
+
+pub async fn declare_all() -> Vec<JoinHandle<()>> {
+    let session = get_session();
+    let start = Instant::now();
+
+    let (heartbeat_rx, ned_rx, enu_rx, global_rx) = with_mavlink_router(|router| {
+        let heartbeat_rx = router.subscribe(move |msg| {
+            let MavMessage::HEARTBEAT(data) = msg else {
+                return None;
+            };
+
+            update_autopilot_state(data.autopilot, data.base_mode, data.custom_mode);
 
             Some(Heartbeat {
                 elapsed_us: start.elapsed().as_micros(),
             })
-        }
-        _ => None,
-    });
+        });
 
-    // watch: only the latest position matters
-    let ned_rx = router.subscribe_watch(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.x, data.y, data.z)),
-        _ => None,
-    });
+        let ned_rx = router.subscribe_watch(|msg| match msg {
+            MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.x, data.y, data.z)),
+            _ => None,
+        });
 
-    let enu_rx = router.subscribe_watch(|msg| match msg {
-        MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.y, data.x, -data.z)),
-        _ => None,
-    });
+        let enu_rx = router.subscribe_watch(|msg| match msg {
+            MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.y, data.x, -data.z)),
+            _ => None,
+        });
 
-    let global_rx = router.subscribe_watch(|msg| match msg {
-        MavMessage::GLOBAL_POSITION_INT(data) => Some(Coords {
-            lat_deg_e7: data.lat,
-            lon_deg_e7: data.lon,
-            alt_mm: data.alt,
-        }),
-        _ => None,
-    });
+        let global_rx = router.subscribe_watch(|msg| match msg {
+            MavMessage::GLOBAL_POSITION_INT(data) => Some(Coords {
+                lat_deg_e7: data.lat,
+                lon_deg_e7: data.lon,
+                alt_mm: data.alt,
+            }),
+            _ => None,
+        });
 
-    let origin_rx = router.subscribe(|msg| match msg {
-        MavMessage::GPS_GLOBAL_ORIGIN(data) => Some(data.clone()),
-        _ => None,
-    });
-
-    tokio::spawn(async move {
-        let mut origin_rx = origin_rx;
-
-        while let Some(origin) = origin_rx.recv().await {
-            println!(
-                "GPS_GLOBAL_ORIGIN: lat={} lon={} alt={}",
-                origin.latitude, origin.longitude, origin.altitude,
-            );
-        }
+        (heartbeat_rx, ned_rx, enu_rx, global_rx)
     });
 
     vec![
@@ -239,17 +264,15 @@ pub async fn declare_all(session: &Session, router: &mut MavlinkRouter) -> Vec<J
             heartbeat_rx,
             false,
             Priority::Background,
-        )
-        .await,
-        create_telem_topic_watch(session, "pos/local/ned", ned_rx, true, Priority::RealTime).await,
-        create_telem_topic_watch(session, "pos/local/enu", enu_rx, true, Priority::RealTime).await,
+        ),
+        create_telem_topic_watch(session, "pos/local/ned", ned_rx, true, Priority::RealTime),
+        create_telem_topic_watch(session, "pos/local/enu", enu_rx, true, Priority::RealTime),
         create_telem_topic_watch(
             session,
             "pos/global/int",
             global_rx,
             true,
             Priority::RealTime,
-        )
-        .await,
+        ),
     ]
 }

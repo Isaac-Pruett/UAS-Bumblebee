@@ -7,8 +7,9 @@ use mavlink::dialects::common::{
 
 use crate::{
     connection::MavlinkHandle,
+    get_session,
     packets::motion::{self, Movement},
-    telem::{AUTOPILOT, AUTOPILOT_MODE, FlightMode},
+    telem::{AUTOPILOT, autopilot_mode},
 };
 
 pub async fn declare_movement_input_sub(
@@ -44,12 +45,11 @@ pub async fn declare_movement_input_sub(
                             MavFrame::MAV_FRAME_LOCAL_NED
                         };
 
-                        if let Some(autopilot_mode) = *AUTOPILOT_MODE.read().await {
+                        if let Some(autopilot_mode) = autopilot_mode() {
                             if autopilot_mode.can_fly() {
-                                let _res = mavconn
+                                let _ = mavconn
                                     .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))
-                                    .await
-                                    .ok();
+                                    .await;
                             }
                         }
                     }
@@ -68,7 +68,7 @@ struct MovementSubParams {
 }
 
 type MovementFn = Arc<dyn Fn(&mut Movement) + Send + Sync>;
-pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
+pub async fn declare_all(mavconn: MavlinkHandle) {
     let tuples = [
         MovementSubParams {
             keyexpr: "control/move/ned/raw".into(),
@@ -179,7 +179,7 @@ pub async fn declare_all(session: &zenoh::Session, mavconn: MavlinkHandle) {
 
     for params in tuples {
         declare_movement_input_sub(
-            &session,
+            &get_session(),
             params.keyexpr.as_str(),
             mavconn.clone(),
             params.movement_tranform.clone(),

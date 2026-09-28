@@ -23,6 +23,18 @@ struct Subscription {
     forward: ForwardFn,
 }
 
+static MAV_ROUTER: std::sync::OnceLock<std::sync::Mutex<MavlinkRouter>> =
+    std::sync::OnceLock::new();
+
+pub fn get_mavlink_router() -> &'static std::sync::Mutex<MavlinkRouter> {
+    MAV_ROUTER.get_or_init(|| std::sync::Mutex::new(MavlinkRouter::new()))
+}
+
+pub fn with_mavlink_router<R>(f: impl FnOnce(&mut MavlinkRouter) -> R) -> R {
+    let mut router = get_mavlink_router().lock().unwrap();
+    f(&mut router)
+}
+
 // -------------------------------------------------------------------
 // MavlinkRouter
 //
@@ -116,7 +128,7 @@ pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
 
 use std::sync::OnceLock;
 
-use crate::control::launch_land::LaunchErrors;
+use crate::control::takeoff::LaunchErrors;
 
 pub static SYSTEM_ID: OnceLock<u8> = OnceLock::new();
 
@@ -212,21 +224,23 @@ pub fn setup_mavlink_task(
     (handle, task)
 }
 
-pub struct MavlinkAckRouter {
+pub struct MavlinkAckChannel {
     cmd_type: MavCmd,
     rx: mpsc::Receiver<MavMessage>,
 }
 
-impl MavlinkAckRouter {
-    pub fn new(router: &mut MavlinkRouter, cmd: MavCmd) -> Self {
-        let rx = router.subscribe(move |msg| match msg {
-            MavMessage::COMMAND_ACK(data) if data.command == cmd => Some(msg.clone()),
-            _ => None,
-        });
-        MavlinkAckRouter {
-            cmd_type: cmd,
-            rx: rx,
-        }
+impl MavlinkAckChannel {
+    pub fn new(cmd: MavCmd) -> Self {
+        with_mavlink_router(|router| {
+            let rx = router.subscribe(move |msg| match msg {
+                MavMessage::COMMAND_ACK(data) if data.command == cmd => Some(msg.clone()),
+                _ => None,
+            });
+            MavlinkAckChannel {
+                cmd_type: cmd,
+                rx: rx,
+            }
+        })
     }
     pub async fn wait_ack(
         &mut self,

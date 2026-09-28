@@ -3,11 +3,12 @@ use zenoh::sample::Sample;
 
 use crate::{
     connection::{MavlinkHandle, SYSTEM_ID},
+    get_session,
     packets::waypoint::Waypoint,
 };
 
-pub async fn declare_goto_waypoint_sub(session: &zenoh::Session, mavconn: MavlinkHandle) {
-    session
+pub async fn declare_goto_waypoint_sub(mavconn: MavlinkHandle) {
+    get_session()
         .declare_subscriber("control/move/global/waypoint")
         .callback(move |sample| {
             let bytes = sample.payload().to_bytes();
