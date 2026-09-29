@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import foxglove
 import msgspec
 import zenoh
 from foxglove.messages import FoxgloveMessage, Timestamp
+
+
+def msgpack_to_json(sample: zenoh.Sample) -> dict[str, Any]:
+    packet = msgspec.msgpack.decode(sample.payload.to_bytes())
+    # Normalize MessagePack values (including binary data) to JSON-compatible values.
+    return {"data": msgspec.json.decode(msgspec.json.encode(packet))}
 
 
 @dataclass(frozen=True)
@@ -27,7 +35,7 @@ class MsgPackFoxgloveAdapter[T]:
 class MsgPackFoxgloveLogger:
     def __init__(
         self,
-        converter: Callable[[zenoh.Sample], FoxgloveMessage],
+        converter: Callable[[zenoh.Sample], FoxgloveMessage | dict[str, Any]],
         topic: Callable[[zenoh.Sample], str] | None = None,
     ):
         self.converter = converter
@@ -37,9 +45,17 @@ class MsgPackFoxgloveLogger:
         if sample.kind != sample.kind.PUT:
             return
 
+        try:
+            message = self.converter(sample)
+        except (msgspec.DecodeError, TypeError, ValueError) as exc:
+            logging.getLogger(__name__).warning(
+                "Skipping invalid telemetry on %s: %s", sample.key_expr, exc
+            )
+            return
+
         foxglove.log(
             self.topic(sample),
-            self.converter(sample),
+            message,
         )
 
 

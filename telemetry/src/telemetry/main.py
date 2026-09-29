@@ -17,6 +17,7 @@ from foxglove.messages import (
 from telemetry.foxglove_zenoh_adapter import (
     MsgPackFoxgloveAdapter,
     MsgPackFoxgloveLogger,
+    msgpack_to_json,
     sample_timestamp,
 )
 from telemetry.serializations.coords import Coords, coords_to_location
@@ -105,6 +106,12 @@ def main():
     coords_sub = session.declare_subscriber(
         "**/mavlink/telemetry/pos/global/int", handler=coords_handler.log
     )
+
+    all_topics_collector = MsgPackFoxgloveLogger(
+        msgpack_to_json,
+        topic=lambda sample: f"/raw/{sample.key_expr}",
+    )
+    all_topics_sub = session.declare_subscriber("**", handler=all_topics_collector.log)
 
     # coords_sub_for_origin_setting = session.declare_subscriber(
     #     "**/mavlink/telemetry/pos/global/int",

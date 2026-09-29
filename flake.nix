@@ -103,35 +103,60 @@
                 up = 0.0;
               };
             }
+
+            # {
+            #   name = "2luke";
+            #   mavlinkConn = mkMavUDPConn 14543;
+
+            #   offset = {
+            #     north = 5.0;
+            #     east = 5.0;
+            #     up = 0.0;
+            #   };
+            # }
+
+            # {
+            #   name = "2akshay";
+            #   mavlinkConn = mkMavUDPConn 14544;
+
+            #   offset = {
+            #     north = 0.0;
+            #     east = -5.0;
+            #     up = 0.0;
+            #   };
+            # }
+
+            # {
+            #   name = "2reagan";
+            #   mavlinkConn = mkMavUDPConn 14545;
+
+            #   offset = {
+            #     north = -5.0;
+            #     east = 0.0;
+            #     up = 0.0;
+            #   };
+            # }
           ];
 
           drone_sim_names = builtins.map (x: x.name) drones_in_sim;
 
           # Generate shared Zenoh config (customize as needed; could derive from template)
           mkSharedConfig =
-            drone_name:
-            pkgs.writeText "zenoh-config.json5" ''
-              {
-                mode: "client",
-                namespace: "${drone_name}",
-                connect: {
-                  endpoints: ["tcp/127.0.0.1:7447"]
-                },
-                scouting: {
-                  multicast: {
-                    enabled: false
-                  }
-                },
-                transport: {
-                  unicast: {
-                    lowlatency: false,
-                  },
-                  shared_memory: {
-                    enabled: true,
-                  },
-                },
+            droneName:
+            pkgs.writeText "zenoh-${droneName}.json" (
+              builtins.toJSON {
+                mode = "client";
+                namespace = droneName;
+
+                connect.endpoints = [ "tcp/127.0.0.1:7447" ];
+                scouting.multicast.enabled = false;
+
+                transport = {
+                  unicast.lowlatency = false;
+                  shared_memory.enabled = true;
+                };
               }
-            '';
+            );
 
           routerCfg = pkgs.writeText "zenoh-router-cfg.json" ''
             {
@@ -142,38 +167,60 @@
             }
           '';
 
-          mkDroneStack =
+          mkDroneProcesses =
             drone:
-            pkgs.writeShellApplication {
-              name = "execUAS_${drone.name}";
+            let
+              environment = [ "ZENOH_CONFIG=${mkSharedConfig drone.name}" ];
+            in
+            {
+              "identity-${drone.name}" = {
+                command = "exec ${self'.packages.identity}/bin/identity";
+                inherit environment;
+              };
+              "mavlink-${drone.name}" = {
+                command = "exec ${self'.packages.mavlink}/bin/mavlink";
+                environment = environment ++ [ "MAVLINK_CONN=${drone.mavlinkConn}" ];
+                availability = {
+                  restart = "on_failure";
+                  backoff_seconds = 3;
+                  max_restarts = 0; # Retry indefinitely if the connection is unavailable.
+                };
+              };
+            };
 
-              runtimeInputs = [
-                self'.packages.mavlink
-                self'.packages.identity
-              ];
-
-              text = ''
-                export ZENOH_CONFIG=${mkSharedConfig drone.name}
-                export MAVLINK_CONN="${drone.mavlinkConn}"
-
-                echo "Launching drone: ${drone.name}"
-                echo "Shared config: $ZENOH_CONFIG"
-                echo "MAVLink endpoint: $MAVLINK_CONN"
-
-                PIDS=()
-
-                spawn() {
-                  "$@" &
-                  PIDS+=($!)
+          mkProcessStack =
+            name: processes:
+            let
+              composeConfig = pkgs.writeText "${name}-process-compose.yaml" (
+                builtins.toJSON {
+                  version = "0.5";
+                  shell = {
+                    shell_command = "${pkgs.bash}/bin/bash";
+                    shell_argument = "-c";
+                  };
+                  processes = builtins.mapAttrs (
+                    _: process:
+                    {
+                      shutdown = {
+                        signal = 15;
+                        timeout_seconds = 10;
+                        parent_only = false;
+                      };
+                    }
+                    // process
+                  ) processes;
                 }
-
-                spawn identity
-                spawn mavlink
-
-                trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
-                wait "''${PIDS[@]}"
+              );
+            in
+            pkgs.writeShellApplication {
+              inherit name;
+              runtimeInputs = [ pkgs.process-compose ];
+              text = ''
+                exec process-compose --config ${composeConfig} --no-server up "$@"
               '';
             };
+
+          mkDroneStack = drone: mkProcessStack "execUAS_${drone.name}" (mkDroneProcesses drone);
 
         in
         {
@@ -207,55 +254,53 @@
 
             default = self'.packages.dev;
 
-            full_simulation = pkgs.writeShellApplication {
-              name = "simulate";
-
-              runtimeInputs = [
-                self'.packages.zenohd
-                self'.packages.telemetry
-              ]
-              ++ builtins.map mkDroneStack drones_in_sim
-              ++ [
-                (inputs.simulation.lib.mkSimSwarm {
+            full_simulation =
+              let
+                simSwarm = inputs.simulation.lib.mkSimSwarm {
                   inherit pkgs;
-
                   vehicles = drones_in_sim;
-
                   origin = {
                     lat = 33.748997;
                     lon = -84.387985;
                     alt = 300.0;
                   };
-
                   backend = "sih";
-                })
-              ];
-
-              text = ''
-                PIDS=()
-
-                spawn() {
-                  "$@" &
-                  PIDS+=($!)
+                };
+                droneProcesses = builtins.foldl' (acc: drone: acc // mkDroneProcesses drone) { } drones_in_sim;
+                routerDependency = {
+                  zenohd.condition = "process_healthy";
+                };
+              in
+              mkProcessStack "simulate" (
+                {
+                  simulator = {
+                    command = "exec ${simSwarm}/bin/simSwarm";
+                    availability.restart = "exit_on_failure";
+                  };
+                  zenohd = {
+                    command = "exec ${self'.packages.zenohd}/bin/zenohd -c ${routerCfg}";
+                    availability.restart = "exit_on_failure";
+                    readiness_probe = {
+                      exec.command = "${pkgs.bash}/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/7447'";
+                      period_seconds = 1;
+                      timeout_seconds = 1;
+                      success_threshold = 1;
+                      failure_threshold = 30;
+                    };
+                  };
+                  telemetry = {
+                    command = "exec ${self'.packages.telemetry}/bin/telemetry";
+                    depends_on = routerDependency;
+                  };
                 }
-
-                spawn simSwarm
-                sleep 3.5
-
-
-                # One shared Zenoh router for the entire simulation.
-                spawn zenohd -c ${routerCfg}
-                sleep 0.5
-
-                spawn telemetry
-                sleep 0.5
-
-                ${builtins.concatStringsSep "" (map (drone: "spawn execUAS_${drone.name}\n") drones_in_sim)}
-
-                trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
-                wait "''${PIDS[@]}"
-              '';
-            };
+                // builtins.mapAttrs (
+                  _: process:
+                  process
+                  // {
+                    depends_on = routerDependency;
+                  }
+                ) droneProcesses
+              );
 
           };
 
