@@ -88,7 +88,7 @@
 
               offset = {
                 north = 0.0;
-                east = 5.0;
+                east = 4.0;
                 up = 0.0;
               };
             }
@@ -98,47 +98,59 @@
               mavlinkConn = mkMavUDPConn 14542;
 
               offset = {
-                north = 5.0;
+                north = 4.0;
                 east = 0.0;
                 up = 0.0;
               };
             }
 
-            # {
-            #   name = "2luke";
-            #   mavlinkConn = mkMavUDPConn 14543;
+            {
+              name = "2luke";
+              mavlinkConn = mkMavUDPConn 14543;
 
-            #   offset = {
-            #     north = 5.0;
-            #     east = 5.0;
-            #     up = 0.0;
-            #   };
-            # }
+              offset = {
+                north = 4.0;
+                east = 4.0;
+                up = 0.0;
+              };
+            }
 
-            # {
-            #   name = "2akshay";
-            #   mavlinkConn = mkMavUDPConn 14544;
+            {
+              name = "2akshay";
+              mavlinkConn = mkMavUDPConn 14544;
 
-            #   offset = {
-            #     north = 0.0;
-            #     east = -5.0;
-            #     up = 0.0;
-            #   };
-            # }
+              offset = {
+                north = 0.0;
+                east = -4.0;
+                up = 0.0;
+              };
+            }
 
-            # {
-            #   name = "2reagan";
-            #   mavlinkConn = mkMavUDPConn 14545;
+            {
+              name = "2reagan";
+              mavlinkConn = mkMavUDPConn 14545;
 
-            #   offset = {
-            #     north = -5.0;
-            #     east = 0.0;
-            #     up = 0.0;
-            #   };
-            # }
+              offset = {
+                north = -4.0;
+                east = 0.0;
+                up = 0.0;
+              };
+            }
           ];
 
-          drone_sim_names = builtins.map (x: x.name) drones_in_sim;
+          simulationOrigin = {
+            lat = 35.32844;
+            lon = -120.75255;
+            alt = 300.0;
+          };
+
+          telemetryConfig = pkgs.writeText "zenoh-telemetry.json" (
+            builtins.toJSON {
+              mode = "client";
+              connect.endpoints = [ "tcp/127.0.0.1:7447" ];
+              scouting.multicast.enabled = false;
+            }
+          );
 
           # Generate shared Zenoh config (customize as needed; could derive from template)
           mkSharedConfig =
@@ -259,11 +271,7 @@
                 simSwarm = inputs.simulation.lib.mkSimSwarm {
                   inherit pkgs;
                   vehicles = drones_in_sim;
-                  origin = {
-                    lat = 33.748997;
-                    lon = -84.387985;
-                    alt = 300.0;
-                  };
+                  origin = simulationOrigin;
                   backend = "sih";
                 };
                 droneProcesses = builtins.foldl' (acc: drone: acc // mkDroneProcesses drone) { } drones_in_sim;
@@ -290,6 +298,14 @@
                   };
                   telemetry = {
                     command = "exec ${self'.packages.telemetry}/bin/telemetry";
+                    environment = [
+                      "TELEMETRY_ZENOH_CONFIG=${telemetryConfig}"
+
+                    ];
+                    availability = {
+                      restart = "on_failure";
+                      backoff_seconds = 3;
+                    };
                     depends_on = routerDependency;
                   };
                 }

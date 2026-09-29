@@ -1,11 +1,12 @@
+import logging
+import os
 import time
-from time import sleep
 
 import foxglove
-import msgspec.msgpack
 import zenoh
 from foxglove.messages import (
     Color,
+    Duration,
     Pose,
     Quaternion,
     SceneEntity,
@@ -22,8 +23,6 @@ from telemetry.foxglove_zenoh_adapter import (
 )
 from telemetry.serializations.coords import Coords, coords_to_location
 from telemetry.serializations.Vec3 import Vec3
-
-foxglove.start_server()
 
 
 def vec3_to_ball(
@@ -66,6 +65,7 @@ def vec3_to_ball(
         timestamp=sample_timestamp(sample),
         frame_id="enu",
         id=f"vehicle_{name}",
+        lifetime=Duration(sec=2, nsec=0),
         spheres=[sphere],
     )
 
@@ -75,26 +75,36 @@ def vec3_to_ball(
     )
 
 
-def identity_collector(
-    sample: zenoh.Sample,
-):
-    pass
-
-
 def main():
-    try:
-        session = zenoh.open(zenoh.Config().from_env())
-    except zenoh.ZError:
-        session = zenoh.open(zenoh.Config())
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    # Do not inherit a drone's namespaced ZENOH_CONFIG from nix develop.
+    config_path = os.environ.get("TELEMETRY_ZENOH_CONFIG")
+    if config_path:
+        config = zenoh.Config.from_file(config_path)
+    else:
+        config = zenoh.Config()
+        config.insert_json5("mode", '"client"')
+        config.insert_json5("connect/endpoints", '["tcp/127.0.0.1:7447"]')
+        config.insert_json5("scouting/multicast/enabled", "false")
 
-    pos_adapter = MsgPackFoxgloveAdapter(
-        packet_type=Vec3,
-        render=vec3_to_ball,
+    logger.info(
+        "Connecting telemetry to Zenoh using %s", config_path or "tcp/127.0.0.1:7447"
     )
-    poshandler = MsgPackFoxgloveLogger(pos_adapter)
+    try:
+        session = zenoh.open(config)
+    except zenoh.ZError:
+        logger.exception("Telemetry could not connect to its configured Zenoh router")
+        raise
 
+    server = foxglove.start_server()
+
+    # The MAVLink bridge emits this stream only after confirming the FC's EKF
+    # origin. Preserve those local coordinates; never project or add offsets here.
+    pos_adapter = MsgPackFoxgloveAdapter(packet_type=Vec3, render=vec3_to_ball)
+    poshandler = MsgPackFoxgloveLogger(pos_adapter)
     pos_sub = session.declare_subscriber(
-        "**/mavlink/telemetry/pos/local/enu", handler=poshandler.log
+        "**/mavlink/telemetry/pos/shared/enu", handler=poshandler.log
     )
 
     coords_adapter = MsgPackFoxgloveAdapter(
@@ -113,37 +123,16 @@ def main():
     )
     all_topics_sub = session.declare_subscriber("**", handler=all_topics_collector.log)
 
-    # coords_sub_for_origin_setting = session.declare_subscriber(
-    #     "**/mavlink/telemetry/pos/global/int",
-    # )
-
-    # identity_getter = session.declare_querier(
-    #     "**/identity/whoami",
-    # )
-
-    # Wait for subscribers to be ready
-    sleep(5)
-
-    origin = Coords(
-        337_489_970,
-        -843_879_850,
-        300_000,
-    )
-
-    payload = msgspec.msgpack.encode(origin)
-
-    for vehicle in ["akshay", "luke", "reagan"]:
-        session.put(
-            f"{vehicle}/mavlink/origin/set",
-            payload,
-        )
-
-    while True:
-        foxglove.log("/sim_alive", {"time": time.time()})
-        time.sleep(0.3)
-
-    print("Python done!")
-    session.close()
+    # Keep server/subscriber handles alive for the entire bridge lifetime.
+    try:
+        while True:
+            foxglove.log("/gcs_telem_alive", {"time": time.time()})
+            time.sleep(0.3)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        session.close()
+        server.stop()
 
 
 if __name__ == "__main__":
