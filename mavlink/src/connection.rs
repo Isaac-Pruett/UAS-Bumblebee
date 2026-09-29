@@ -1,16 +1,12 @@
-use std::{sync::LazyLock, time::Duration};
+use std::time::Duration;
 
 use mavlink::{
     AsyncMavConnection, MavlinkVersion,
     dialects::common::{MavCmd, MavMessage},
 };
 use tokio::{
-    sync::{
-        mpsc::{self, error::TryRecvError},
-        watch::{self},
-    },
+    sync::{mpsc, watch},
     task::JoinHandle,
-    time::Instant,
 };
 
 type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
@@ -140,15 +136,20 @@ pub static SYSTEM_ID: OnceLock<u8> = OnceLock::new();
 // dedicated single-threaded runtime so it never competes with the
 // main Tokio pool.
 // -------------------------------------------------------------------
-pub fn setup_mavlink_task(
-    conn: AsyncMavConn,
-    router: MavlinkRouter,
-) -> (MavlinkHandle, JoinHandle<()>) {
+pub fn setup_mavlink_task(conn: AsyncMavConn) -> (MavlinkHandle, JoinHandle<()>) {
     println!("mavlink: INIT MAVLINK TASK");
 
     let (handle, mut send_rx) = mpsc::channel::<MavMessage>(128);
 
-    let subscriptions = router.subscriptions;
+    let subscriptions = {
+        let mut router = get_mavlink_router().lock().unwrap();
+        std::mem::take(&mut router.subscriptions)
+    };
+
+    println!(
+        "mavlink: starting with {} subscriptions",
+        subscriptions.len()
+    );
 
     let task = tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -157,34 +158,24 @@ pub fn setup_mavlink_task(
             .unwrap();
 
         rt.block_on(async move {
-            let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(1));
-
-            'init_sys_id : loop {
-                let result = conn.recv().await;
-                match result {
-                    Ok((header, msg)) => {
-                        if let MavMessage::HEARTBEAT(_) = msg {
-                            SYSTEM_ID.set(header.system_id).ok();
-                            break 'init_sys_id;
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            let mut heartbeat_interval =
+                tokio::time::interval(Duration::from_secs(1));
 
             loop {
                 tokio::select! {
                     biased;
 
                     _ = heartbeat_interval.tick() => {
-                        let heartbeat = MavMessage::HEARTBEAT(mavlink::dialects::common::HEARTBEAT_DATA {
-                            custom_mode: 0,
-                            mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
-                            autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
-                            base_mode: mavlink::dialects::common::MavModeFlag::empty(),
-                            system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
-                            mavlink_version: 3,
-                        });
+                        let heartbeat = MavMessage::HEARTBEAT(
+                            mavlink::dialects::common::HEARTBEAT_DATA {
+                                custom_mode: 0,
+                                mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
+                                autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
+                                base_mode: mavlink::dialects::common::MavModeFlag::empty(),
+                                system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
+                                mavlink_version: 3,
+                            }
+                        );
 
                         if let Err(e) = conn.send_default(&heartbeat).await {
                             eprintln!("MAVLink heartbeat send error: {e}");
@@ -199,20 +190,21 @@ pub fn setup_mavlink_task(
 
                     result = conn.recv() => {
                         match result {
-                            Ok((_header, msg)) => {
+                            Ok((header, msg)) => {
+                                if matches!(msg, MavMessage::HEARTBEAT(_)) {
+                                    SYSTEM_ID.set(header.system_id).ok();
+                                }
 
-
-                                // Fan out to every matching subscription.
-                                // Only subscribers whose `matches` predicate
-                                // returns true receive a clone; the last
-                                // matching subscriber gets the original.
                                 for sub in &subscriptions {
                                     (sub.forward)(&msg);
                                 }
                             }
+
                             Err(e) => {
                                 eprintln!("MAVLink recv error: {e}");
-                                tokio::time::sleep(Duration::from_millis(50)).await;
+                                tokio::time::sleep(
+                                    Duration::from_millis(50)
+                                ).await;
                             }
                         }
                     }

@@ -8,7 +8,7 @@ use std::{
 
 use zenoh::{self, Session};
 
-use crate::connection::{MavlinkRouter, mav_connect, setup_mavlink_task};
+use crate::connection::{mav_connect, setup_mavlink_task};
 
 mod connection;
 
@@ -50,15 +50,14 @@ async fn main() {
     let mavconn = mav_connect(&mavlink_conn_str).await;
     println!("{namespace} connected to mavlink on '{mavlink_conn_str}'");
 
-    let mut router = MavlinkRouter::new();
     let telem_handles = telem::declare_all().await;
-    let pwm_state = control::pwm::register_pwm_watchers(&mut router).await;
+    let pwm_state = control::pwm::register_pwm_watchers().await;
     let launch_ack_channel =
         connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_TAKEOFF);
     let land_ack_channel =
         connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_LAND);
 
-    let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
+    let (mav_handle, message_handle) = setup_mavlink_task(mavconn);
 
     control::origin::declare_origin_sub(mav_handle.clone()).await;
     control::movement::declare_all(mav_handle.clone()).await;

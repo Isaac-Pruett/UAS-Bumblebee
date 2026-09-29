@@ -1,5 +1,4 @@
-use mavlink::dialects::common::{COMMAND_INT_DATA, MavCmd, MavFrame::MAV_FRAME_GLOBAL, MavMessage};
-use zenoh::sample::Sample;
+use mavlink::dialects::common::{MavCmd, MavFrame::MAV_FRAME_GLOBAL, MavMessage};
 
 use crate::{
     connection::{MavlinkHandle, SYSTEM_ID},
