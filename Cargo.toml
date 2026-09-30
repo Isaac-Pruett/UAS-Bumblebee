@@ -1,0 +1,14 @@
+[workspace]
+members = [
+  "identity",
+  "mavlink",
+  "demo_ctrl_node",
+]
+resolver = "3"
+
+[workspace.dependencies]
+rmp-serde = "1.3.1"
+serde = "1.0.229"
+tokio = { version = "1.49.0", features = ["full"] }
+zenoh = { version = "=1.9.0", features = ["shared-memory"] }
+zenoh-ext = "=1.9.0"
