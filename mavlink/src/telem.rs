@@ -273,8 +273,8 @@ pub async fn declare_all() -> Vec<JoinHandle<()>> {
             false,
             Priority::Background,
         ),
-        create_telem_topic_watch(session, "pos/local/ned", ned_rx, true, Priority::RealTime),
-        create_telem_topic_watch(session, "pos/local/enu", enu_rx, true, Priority::RealTime),
+        create_telem_topic_watch(session, "state/local/ned", ned_rx, true, Priority::RealTime),
+        create_telem_topic_watch(session, "state/local/enu", enu_rx, true, Priority::RealTime),
         create_telem_topic_watch(
             session,
             "pos/global/int",

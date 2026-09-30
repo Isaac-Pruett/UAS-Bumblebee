@@ -108,7 +108,7 @@ def main():
     )
     poshandler = MsgPackFoxgloveLogger(pos_adapter)
     pos_sub = session.declare_subscriber(
-        "**/mavlink/telemetry/pos/local/enu", handler=poshandler.log
+        "**/mavlink/telemetry/state/local/enu", handler=poshandler.log
     )
 
     coords_adapter = MsgPackFoxgloveAdapter(
