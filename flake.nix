@@ -240,6 +240,7 @@
               ./identity
               ./mavlink
               ./demo_ctrl_node
+              ./formations
             ];
           };
 

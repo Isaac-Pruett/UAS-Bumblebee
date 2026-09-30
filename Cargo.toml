@@ -5,7 +5,13 @@ members = [
   "demo_ctrl_node",
   "formations",
 ]
+
+exclude = [ # this is temporary
+"splines",
+]
+
 resolver = "3"
+
 
 [workspace.dependencies]
 rmp-serde = "1.3.1"
