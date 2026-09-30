@@ -2,9 +2,12 @@ use std::f32;
 
 use mavlink::dialects::common::{COMMAND_INT_DATA, COMMAND_LONG_DATA, MavCmd, MavMessage};
 use tokio::sync::{mpsc::Sender, watch::Receiver};
-use zenoh::{Session, pubsub::Subscriber};
+use zenoh::Session;
 
-use crate::connection::{MavlinkHandle, MavlinkRouter};
+use crate::{
+    connection::{MavlinkHandle, SYSTEM_ID, with_mavlink_router},
+    get_session,
+};
 
 pub struct PwmController {
     pub pin: u8,
@@ -29,7 +32,7 @@ static ACTUATOR_COUNT: LazyLock<u8> = LazyLock::new(|| {
 
 impl PwmController {
     /// Pin is 0-indexed
-    async fn new(pin: u8, mavconn: MavlinkHandle, session: &Session) -> Self {
+    async fn new(pin: u8, mavconn: MavlinkHandle) -> Self {
         let mut pwm = PwmController {
             pin,
             mavconn,
@@ -46,7 +49,7 @@ impl PwmController {
 
         pwm.mavconn.send(message).await.ok();
 
-        pwm.bind_subscriber(session).await;
+        pwm.bind_subscriber(get_session()).await;
 
         return pwm;
     }
@@ -75,7 +78,7 @@ impl PwmController {
                             param5: if pin % 6 == 4 { value } else { f32::NAN },
                             param6: if pin % 6 == 5 { value } else { f32::NAN },
                             param7: ((pin * 37) >> 8) as f32,
-                            target_system: 1,
+                            target_system: *SYSTEM_ID.get().unwrap_or(&0),
                             target_component: 1,
                             confirmation: 0,
                         });
@@ -90,27 +93,28 @@ impl PwmController {
     }
 }
 
-pub async fn register_pwm_watchers(router: &mut MavlinkRouter) -> Vec<Receiver<Option<PinState>>> {
-    let mut pwm_watchers = Vec::new();
-    for pin in 0..*ACTUATOR_COUNT {
-        let state_recv = router.subscribe_watch(move |msg| {
-            let pin = pin.clone();
-            match msg {
-                MavMessage::ACTUATOR_OUTPUT_STATUS(data) => Some(PinState {
-                    enabled: (data.active & (1u32 << pin)) != 0,
+pub async fn register_pwm_watchers() -> Vec<Receiver<Option<PinState>>> {
+    with_mavlink_router(|router| {
+        let mut pwm_watchers = Vec::new();
+        for pin in 0..*ACTUATOR_COUNT {
+            let state_recv = router.subscribe_watch(move |msg| {
+                let pin = pin.clone();
+                match msg {
+                    MavMessage::ACTUATOR_OUTPUT_STATUS(data) => Some(PinState {
+                        enabled: (data.active & (1u32 << pin)) != 0,
 
-                    value: data.actuator.get(pin as usize).copied(),
-                }),
-                _ => None,
-            }
-        });
-        pwm_watchers.push(state_recv);
-    }
-    pwm_watchers
+                        value: data.actuator.get(pin as usize).copied(),
+                    }),
+                    _ => None,
+                }
+            });
+            pwm_watchers.push(state_recv);
+        }
+        pwm_watchers
+    })
 }
 
 pub async fn register_all_pwm_subs(
-    session: &Session,
     handle: MavlinkHandle,
     watchers: Vec<Receiver<Option<PinState>>>,
 ) -> Vec<PwmController> {
@@ -118,7 +122,7 @@ pub async fn register_all_pwm_subs(
 
     for i in 0..*ACTUATOR_COUNT {
         let handle = handle.clone();
-        let mut p = PwmController::new(i, handle, session).await;
+        let mut p = PwmController::new(i, handle).await;
         p.bind_watcher(watchers[i as usize].clone()).await;
         v.push(p);
     }

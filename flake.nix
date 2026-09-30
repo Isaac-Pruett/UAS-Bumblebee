@@ -5,15 +5,22 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
 
-    mavlink.url = "./mavlink";
+    crane.url = "github:ipetkov/crane";
 
-    identity.url = "./identity";
+    simulation = {
+      url = "./simulation";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
-    # sim_ctrl.url = ./sim_ctrl;
-    #
-    simulation.url = ./simulation;
+    zenohd = {
+      url = "./zenohd";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
-    zenohd.url = "./zenohd";
+    telemetry = {
+      url = "./telemetry";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
   };
 
@@ -52,31 +59,109 @@
           # - pkgs is an instance of nixpkgs for your specific system
           # - system is the system this configuration is for
 
-          drone_name = "bingus_the_drone";
+          default_drone_name = "bingus_the_drone";
+
+          mkMavUDPConn = port: "udpin:127.0.0.1:${toString port}";
+
+          drones_in_sim = [
+            {
+              name = "luke";
+              mavlinkConn = mkMavUDPConn 14540;
+
+              offset = {
+                north = 0.0;
+                east = 0.0;
+                up = 0.0;
+              };
+            }
+
+            {
+              name = "akshay";
+              mavlinkConn = mkMavUDPConn 14541;
+
+              offset = {
+                north = 0.0;
+                east = 4.0;
+                up = 0.0;
+              };
+            }
+
+            {
+              name = "reagan";
+              mavlinkConn = mkMavUDPConn 14542;
+
+              offset = {
+                north = 4.0;
+                east = 0.0;
+                up = 0.0;
+              };
+            }
+
+            {
+              name = "2luke";
+              mavlinkConn = mkMavUDPConn 14543;
+
+              offset = {
+                north = 4.0;
+                east = 4.0;
+                up = 0.0;
+              };
+            }
+
+            {
+              name = "2akshay";
+              mavlinkConn = mkMavUDPConn 14544;
+
+              offset = {
+                north = 0.0;
+                east = -4.0;
+                up = 0.0;
+              };
+            }
+
+            {
+              name = "2reagan";
+              mavlinkConn = mkMavUDPConn 14545;
+
+              offset = {
+                north = -4.0;
+                east = 0.0;
+                up = 0.0;
+              };
+            }
+          ];
+
+          simulationOrigin = {
+            lat = 35.32844;
+            lon = -120.75255;
+            alt = 300.0;
+          };
+
+          telemetryConfig = pkgs.writeText "zenoh-telemetry.json" (
+            builtins.toJSON {
+              mode = "client";
+              connect.endpoints = [ "tcp/127.0.0.1:7447" ];
+              scouting.multicast.enabled = false;
+            }
+          );
 
           # Generate shared Zenoh config (customize as needed; could derive from template)
-          sharedConfig = pkgs.writeText "zenoh-config.json5" ''
-            {
-              mode: "client",
-              namespace: "${drone_name}",
-              connect: {
-                endpoints: ["tcp/127.0.0.1:7447"]
-              },
-              scouting: {
-                multicast: {
-                  enabled: false
-                }
-              },
-              transport: {
-                unicast: {
-                  lowlatency: false,
-                },
-                shared_memory: {
-                  enabled: true,
-                },
-              },
-            }
-          '';
+          mkSharedConfig =
+            droneName:
+            pkgs.writeText "zenoh-${droneName}.json" (
+              builtins.toJSON {
+                mode = "client";
+                namespace = droneName;
+
+                connect.endpoints = [ "tcp/127.0.0.1:7447" ];
+                scouting.multicast.enabled = false;
+
+                transport = {
+                  unicast.lowlatency = false;
+                  shared_memory.enabled = true;
+                };
+              }
+            );
 
           routerCfg = pkgs.writeText "zenoh-router-cfg.json" ''
             {
@@ -87,18 +172,119 @@
             }
           '';
 
+          mkDroneProcesses =
+            drone:
+            let
+              environment = [ "ZENOH_CONFIG=${mkSharedConfig drone.name}" ];
+            in
+            {
+              "identity-${drone.name}" = {
+                command = "exec ${self'.packages.identity}/bin/identity";
+                inherit environment;
+              };
+              "mavlink-${drone.name}" = {
+                command = "exec ${self'.packages.mavlink}/bin/mavlink";
+                environment = environment ++ [ "MAVLINK_CONN=${drone.mavlinkConn}" ];
+                ready_log_line = "mavlink: autopilot =";
+                availability = {
+                  restart = "on_failure";
+                  backoff_seconds = 3;
+                  max_restarts = 0; # Retry indefinitely if the connection is unavailable.
+                };
+              };
+            };
+
+          mkProcessStack =
+            name: processes:
+            let
+              composeConfig = pkgs.writeText "${name}-process-compose.yaml" (
+                builtins.toJSON {
+                  version = "0.5";
+                  shell = {
+                    shell_command = "${pkgs.bash}/bin/bash";
+                    shell_argument = "-c";
+                  };
+                  processes = builtins.mapAttrs (
+                    _: process:
+                    {
+                      shutdown = {
+                        signal = 15;
+                        timeout_seconds = 10;
+                        parent_only = false;
+                      };
+                    }
+                    // process
+                  ) processes;
+                }
+              );
+            in
+            pkgs.writeShellApplication {
+              inherit name;
+              runtimeInputs = [ pkgs.process-compose ];
+              text = ''
+                exec process-compose --config ${composeConfig} --no-server up "$@"
+              '';
+            };
+
+          mkDroneStack = drone: mkProcessStack "execUAS_${drone.name}" (mkDroneProcesses drone);
+
+          craneLib = inputs.crane.mkLib pkgs;
+
+          # Keep templates and other non-workspace Cargo manifests out of Crane's
+          # recursive source scan.
+          rustWorkspaceSrc = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./identity
+              ./mavlink
+              ./demo_ctrl_node
+            ];
+          };
+
+          commonRustArgs = {
+            pname = "uas-rust-workspace";
+            version = "0.1.0";
+            src = craneLib.cleanCargoSource rustWorkspaceSrc;
+            strictDeps = true;
+          };
+
+          # Build the workspace dependency graph once and reuse its artifacts for
+          # each node package.
+          rustWorkspaceDeps = craneLib.buildDepsOnly (
+            commonRustArgs
+            // {
+              cargoExtraArgs = "--workspace";
+            }
+          );
+
+          rustWorkspace = craneLib.buildPackage (
+            commonRustArgs
+            // {
+              cargoArtifacts = rustWorkspaceDeps;
+              cargoExtraArgs = "--workspace";
+            }
+          );
+
+          # Each node is a thin package around the one workspace build. Building
+          # the workspace with the same Cargo arguments as rustWorkspaceDeps
+          # keeps Cargo's feature fingerprints compatible, so Zenoh is reused.
+          mkRustNode =
+            name:
+            pkgs.runCommand name { } ''
+              mkdir -p "$out/bin"
+              ln -s ${rustWorkspace}/bin/${name} "$out/bin/${name}"
+            '';
+
         in
         {
-          # Expose subproject packages for composition
-          packages = {
-            rust_demo = inputs.rust-demo-sub.packages.${system}.default;
-            python_demo = inputs.python-demo-sub.packages.${system}.default;
-            mavlink = inputs.mavlink.packages.${system}.default;
-            identity = inputs.identity.packages.${system}.default;
-            # sim_ctrl = inputs.sim_ctrl.packages.${system}.default;
-            #
-            simulation = inputs.simulation.packages.${system}.default;
 
+          packages = {
+            mavlink = mkRustNode "mavlink";
+            identity = mkRustNode "identity";
+            demo_ctrl_node = mkRustNode "demo_ctrl_node";
+            telemetry = inputs.telemetry.packages.${system}.default;
             zenohd = inputs.zenohd.packages.${system}.default;
 
             nuze = pkgs.rustPlatform.buildRustPackage rec {
@@ -113,64 +299,103 @@
               cargoHash = "sha256-Ik72sGNDeMh+YNWloErhFx+YLYHMEZ1aWBWmKWYUQNg=";
             };
 
-            dev = pkgs.writeShellApplication {
-              name = "execUAS";
-              runtimeInputs = [
-                self'.packages.mavlink
-                self'.packages.identity
-                # self'.packages.sim_ctrl
-                self'.packages.simulation
-                self'.packages.zenohd
-              ];
-
-              text = ''
-                export ZENOH_CONFIG=${sharedConfig}
-                echo "Launching with shared config: $ZENOH_CONFIG"
-
-                PIDS=()
-
-                spawn() { "$@" & PIDS+=($!); }
-
-                spawn px4-jsbsim
-
-                sleep 2.0
-
-                spawn zenohd -c ${routerCfg} 1>/dev/null
-                sleep 0.5
-                spawn identity
-                spawn mavlink
-                # spawn sim_ctrl
-
-                trap 'kill "''${PIDS[@]}" 2>/dev/null' EXIT INT TERM
-                wait "''${PIDS[@]:1}"
-              '';
+            dev = mkDroneStack {
+              name = default_drone_name;
+              mavlinkConn = mkMavUDPConn 14540;
             };
 
             default = self'.packages.dev;
+
+            full_simulation =
+              let
+                simSwarm = inputs.simulation.lib.mkSimSwarm {
+                  inherit pkgs;
+                  vehicles = drones_in_sim;
+                  origin = simulationOrigin;
+                  backend = "sih";
+                };
+                droneProcesses = builtins.foldl' (acc: drone: acc // mkDroneProcesses drone) { } drones_in_sim;
+                routerDependency = {
+                  zenohd.condition = "process_healthy";
+                };
+              in
+              mkProcessStack "simulate" (
+                {
+                  simulator = {
+                    command = "exec ${simSwarm}/bin/simSwarm";
+                    availability.restart = "exit_on_failure";
+                  };
+                  zenohd = {
+                    command = "exec ${self'.packages.zenohd}/bin/zenohd -c ${routerCfg}";
+                    availability.restart = "exit_on_failure";
+                    readiness_probe = {
+                      exec.command = "${pkgs.bash}/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/7447'";
+                      period_seconds = 1;
+                      timeout_seconds = 1;
+                      success_threshold = 1;
+                      failure_threshold = 30;
+                    };
+                  };
+                  telemetry = {
+                    command = "exec ${self'.packages.telemetry}/bin/telemetry";
+                    environment = [
+                      "TELEMETRY_ZENOH_CONFIG=${telemetryConfig}"
+
+                    ];
+                    availability = {
+                      restart = "on_failure";
+                      backoff_seconds = 3;
+                    };
+                    depends_on = routerDependency;
+                  };
+                  demo_ctrl_node = {
+                    command = "exec ${self'.packages.demo_ctrl_node}/bin/demo_ctrl_node";
+                    environment = [
+                      "ZENOH_CONFIG=${telemetryConfig}"
+
+                    ];
+
+                    availability = {
+                      restart = "on_failure";
+                      backoff_seconds = 3;
+                    };
+                    depends_on = routerDependency;
+                  };
+                }
+                // builtins.mapAttrs (
+                  _: process:
+                  process
+                  // {
+                    depends_on = routerDependency;
+                  }
+                ) droneProcesses
+              );
 
           };
 
           devShells.default = pkgs.mkShell {
             packages = [
-
               self'.packages.zenohd
               self'.packages.dev
+              self'.packages.telemetry
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.rustPackages.clippy
               pkgs.just
               pkgs.uv
-              # self'.packages.nuze
-
             ];
-            env.DRONE_NAME = drone_name;
-            env.ZENOH_CONFIG = sharedConfig;
+
+            env.DRONE_NAME = default_drone_name;
+            env.ZENOH_CONFIG = mkSharedConfig default_drone_name;
 
             shellHook = ''
               alias j="just"
-              echo "Run 'demo-ping-pong-zenoh' to start demo."
               echo "just is aliased to j"
-              # zenohd -c ${routerCfg}
             '';
           };
         };
+
       flake = {
         # The usual flake attributes can be defined here, including
         # system-agnostic and/or arbitrary outputs.

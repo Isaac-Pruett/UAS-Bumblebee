@@ -1,5 +1,9 @@
 {
+<<<<<<<< HEAD:visualization/flake.nix
   description = "visualization — Python Zenoh Node";
+========
+  description = "telemetry — Python Zenoh Node";
+>>>>>>>> main:telemetry/flake.nix
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     pyproject-nix = {
@@ -59,7 +63,11 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           pythonSet = pythonSets.${system}.overrideScope editableOverlay;
+<<<<<<<< HEAD:visualization/flake.nix
           virtualenv = pythonSet.mkVirtualEnv "visualization-dev-env" workspace.deps.all;
+========
+          virtualenv = pythonSet.mkVirtualEnv "telemetry-dev-env" workspace.deps.all;
+>>>>>>>> main:telemetry/flake.nix
         in
         {
           default = pkgs.mkShell {
@@ -74,13 +82,40 @@
             };
             shellHook = ''
               unset PYTHONPATH
+<<<<<<<< HEAD:visualization/flake.nix
               export REPO_ROOT=$(git rev-parse --show-toplevel)/visualization
+========
+              export REPO_ROOT=$(git rev-parse --show-toplevel)/telemetry
+>>>>>>>> main:telemetry/flake.nix
             '';
           };
         }
       );
+<<<<<<<< HEAD:visualization/flake.nix
       packages = forAllSystems (system: {
         default = pythonSets.${system}.mkVirtualEnv "visualization-env" workspace.deps.default;
       });
+========
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          pythonSet = pythonSets.${system};
+
+          virtualenv = pythonSet.mkVirtualEnv "telemetry-env" workspace.deps.default;
+
+          telemetry = pkgs.writeShellApplication {
+            name = "telemetry";
+            text = ''
+              exec ${virtualenv}/bin/telemetry "$@"
+            '';
+          };
+        in
+        {
+          default = telemetry;
+          inherit telemetry;
+        }
+      );
+>>>>>>>> main:telemetry/flake.nix
     };
 }

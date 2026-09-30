@@ -5,12 +5,8 @@ use mavlink::{
     dialects::common::{MavCmd, MavMessage},
 };
 use tokio::{
-    sync::{
-        mpsc::{self, error::TryRecvError},
-        watch::{self},
-    },
+    sync::{mpsc, watch},
     task::JoinHandle,
-    time::Instant,
 };
 
 type AsyncMavConn = Box<dyn AsyncMavConnection<MavMessage> + Send + Sync>;
@@ -21,6 +17,18 @@ type ForwardFn = Box<dyn Fn(&MavMessage) + Send + Sync>;
 
 struct Subscription {
     forward: ForwardFn,
+}
+
+static MAV_ROUTER: std::sync::OnceLock<std::sync::Mutex<MavlinkRouter>> =
+    std::sync::OnceLock::new();
+
+pub fn get_mavlink_router() -> &'static std::sync::Mutex<MavlinkRouter> {
+    MAV_ROUTER.get_or_init(|| std::sync::Mutex::new(MavlinkRouter::new()))
+}
+
+pub fn with_mavlink_router<R>(f: impl FnOnce(&mut MavlinkRouter) -> R) -> R {
+    let mut router = get_mavlink_router().lock().unwrap();
+    f(&mut router)
 }
 
 // -------------------------------------------------------------------
@@ -114,6 +122,12 @@ pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
     mavconn
 }
 
+use std::sync::OnceLock;
+
+use crate::control::takeoff::LaunchErrors;
+
+pub static SYSTEM_ID: OnceLock<u8> = OnceLock::new();
+
 // -------------------------------------------------------------------
 // Task setup
 //
@@ -122,15 +136,20 @@ pub async fn mav_connect(mavlink_conn_str: &str) -> AsyncMavConn {
 // dedicated single-threaded runtime so it never competes with the
 // main Tokio pool.
 // -------------------------------------------------------------------
-pub fn setup_mavlink_task(
-    conn: AsyncMavConn,
-    router: MavlinkRouter,
-) -> (MavlinkHandle, JoinHandle<()>) {
+pub fn setup_mavlink_task(conn: AsyncMavConn) -> (MavlinkHandle, JoinHandle<()>) {
     println!("mavlink: INIT MAVLINK TASK");
 
     let (handle, mut send_rx) = mpsc::channel::<MavMessage>(128);
 
-    let subscriptions = router.subscriptions;
+    let subscriptions = {
+        let mut router = get_mavlink_router().lock().unwrap();
+        std::mem::take(&mut router.subscriptions)
+    };
+
+    println!(
+        "mavlink: starting with {} subscriptions",
+        subscriptions.len()
+    );
 
     let task = tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -139,21 +158,24 @@ pub fn setup_mavlink_task(
             .unwrap();
 
         rt.block_on(async move {
-            let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(1));
+            let mut heartbeat_interval =
+                tokio::time::interval(Duration::from_secs(1));
 
             loop {
                 tokio::select! {
                     biased;
 
                     _ = heartbeat_interval.tick() => {
-                        let heartbeat = MavMessage::HEARTBEAT(mavlink::dialects::common::HEARTBEAT_DATA {
-                            custom_mode: 0,
-                            mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
-                            autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
-                            base_mode: mavlink::dialects::common::MavModeFlag::empty(),
-                            system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
-                            mavlink_version: 3,
-                        });
+                        let heartbeat = MavMessage::HEARTBEAT(
+                            mavlink::dialects::common::HEARTBEAT_DATA {
+                                custom_mode: 0,
+                                mavtype: mavlink::dialects::common::MavType::MAV_TYPE_ONBOARD_CONTROLLER,
+                                autopilot: mavlink::dialects::common::MavAutopilot::MAV_AUTOPILOT_INVALID,
+                                base_mode: mavlink::dialects::common::MavModeFlag::empty(),
+                                system_status: mavlink::dialects::common::MavState::MAV_STATE_ACTIVE,
+                                mavlink_version: 3,
+                            }
+                        );
 
                         if let Err(e) = conn.send_default(&heartbeat).await {
                             eprintln!("MAVLink heartbeat send error: {e}");
@@ -168,18 +190,21 @@ pub fn setup_mavlink_task(
 
                     result = conn.recv() => {
                         match result {
-                            Ok((_header, msg)) => {
-                                // Fan out to every matching subscription.
-                                // Only subscribers whose `matches` predicate
-                                // returns true receive a clone; the last
-                                // matching subscriber gets the original.
+                            Ok((header, msg)) => {
+                                if matches!(msg, MavMessage::HEARTBEAT(_)) {
+                                    SYSTEM_ID.set(header.system_id).ok();
+                                }
+
                                 for sub in &subscriptions {
                                     (sub.forward)(&msg);
                                 }
                             }
+
                             Err(e) => {
                                 eprintln!("MAVLink recv error: {e}");
-                                tokio::time::sleep(Duration::from_millis(50)).await;
+                                tokio::time::sleep(
+                                    Duration::from_millis(50)
+                                ).await;
                             }
                         }
                     }
@@ -191,51 +216,33 @@ pub fn setup_mavlink_task(
     (handle, task)
 }
 
-pub struct MavlinkAckRouter {
+pub struct MavlinkAckChannel {
     cmd_type: MavCmd,
     rx: mpsc::Receiver<MavMessage>,
 }
 
-impl MavlinkAckRouter {
-    pub fn new(router: &mut MavlinkRouter, cmd: MavCmd) -> Self {
-        let rx = router.subscribe(move |msg| match msg {
-            MavMessage::COMMAND_ACK(data) if data.command == cmd => Some(msg.clone()),
-            _ => None,
-        });
-        MavlinkAckRouter {
-            cmd_type: cmd,
-            rx: rx,
-        }
+impl MavlinkAckChannel {
+    pub fn new(cmd: MavCmd) -> Self {
+        with_mavlink_router(|router| {
+            let rx = router.subscribe(move |msg| match msg {
+                MavMessage::COMMAND_ACK(data) if data.command == cmd => Some(msg.clone()),
+                _ => None,
+            });
+            MavlinkAckChannel {
+                cmd_type: cmd,
+                rx: rx,
+            }
+        })
     }
     pub async fn wait_ack(
         &mut self,
         timeout: Duration,
-    ) -> Result<mavlink::dialects::common::MavResult, TryRecvError> {
-        let deadline = Instant::now() + timeout;
-
-        loop {
-            match self.rx.try_recv() {
-                Ok(MavMessage::COMMAND_ACK(data)) => {
-                    return Ok(data.result);
-                }
-
-                Ok(_) => {
-                    // Should not happen if router filter is correct.
-                    continue;
-                }
-
-                Err(TryRecvError::Empty) => {
-                    if Instant::now() >= deadline {
-                        return Err(TryRecvError::Empty);
-                    }
-
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-
-                Err(TryRecvError::Disconnected) => {
-                    return Err(TryRecvError::Disconnected);
-                }
-            }
+    ) -> Result<mavlink::dialects::common::MavResult, LaunchErrors> {
+        match tokio::time::timeout(timeout, self.rx.recv()).await {
+            Ok(Some(MavMessage::COMMAND_ACK(data))) => Ok(data.result),
+            Ok(Some(_)) => unreachable!("ACK router received non-ACK message"),
+            Ok(None) => Err(LaunchErrors::AckRejected),
+            Err(_) => Err(LaunchErrors::AckTimeout),
         }
     }
 }

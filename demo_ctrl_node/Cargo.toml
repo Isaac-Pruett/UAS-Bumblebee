@@ -1,0 +1,17 @@
+[package]
+name = "demo_ctrl_node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gilrs = "0.11.2"
+
+rmp-serde.workspace = true
+serde.workspace = true
+tokio.workspace = true
+zenoh.workspace = true
+zenoh-ext.workspace = true
+
+[[bin]]
+name = "demo_ctrl_node"
+path = "src/main.rs"

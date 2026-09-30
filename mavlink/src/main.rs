@@ -1,17 +1,26 @@
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
-use zenoh::{self};
+use zenoh::{self, Session};
 
-use crate::connection::{MavlinkRouter, mav_connect, setup_mavlink_task};
+use crate::connection::{mav_connect, setup_mavlink_task};
 
 mod connection;
 
 mod control;
 mod packets;
 mod telem;
+
+pub static ZENOH_SESSION: OnceLock<Session> = OnceLock::new();
+
+pub fn get_session() -> &'static Session {
+    ZENOH_SESSION.get().expect("ZENOH_SESSION not set")
+}
 
 #[tokio::main]
 async fn main() {
@@ -34,37 +43,34 @@ async fn main() {
         .await
         .expect("mavlink: failed to initialize zenoh");
 
+    ZENOH_SESSION.set(session);
+
     let mavlink_conn_str =
         std::env::var("MAVLINK_CONN").unwrap_or_else(|_| "udpin:0.0.0.0:14551".to_string());
     let mavconn = mav_connect(&mavlink_conn_str).await;
+    println!("{namespace} connected to mavlink on '{mavlink_conn_str}'");
 
-    let mut router = MavlinkRouter::new();
-    let telem_handles = telem::declare_all(&session, &mut router).await;
-    let pwm_state = control::pwm::register_pwm_watchers(&mut router).await;
-    let launch_ack_channel = connection::MavlinkAckRouter::new(
-        &mut router,
-        mavlink::dialects::common::MavCmd::MAV_CMD_NAV_TAKEOFF,
-    );
-    let land_ack_channel = connection::MavlinkAckRouter::new(
-        &mut router,
-        mavlink::dialects::common::MavCmd::MAV_CMD_NAV_LAND,
-    );
+    let telem_handles = telem::declare_all().await;
+    let pwm_state = control::pwm::register_pwm_watchers().await;
+    let launch_ack_channel =
+        connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_TAKEOFF);
+    let land_ack_channel =
+        connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_LAND);
 
-    let (mav_handle, message_handle) = setup_mavlink_task(mavconn, router);
+    let (mav_handle, message_handle) = setup_mavlink_task(mavconn);
 
-    control::origin::declare_origin_sub(&session, mav_handle.clone()).await;
-    control::movement::declare_all(&session, mav_handle.clone()).await;
-    control::reposition::declare_goto_waypoint_sub(&session, mav_handle.clone()).await;
+    control::origin::declare_origin_sub(mav_handle.clone()).await;
+    control::movement::declare_all(mav_handle.clone()).await;
+    control::reposition::declare_goto_waypoint_sub(mav_handle.clone()).await;
 
-    control::launch_land::register_launch_land(
-        &session,
+    control::takeoff::register_launch_land(
         &mav_handle.clone(),
         launch_ack_channel,
         land_ack_channel,
     )
     .await;
 
-    control::pwm::register_all_pwm_subs(&session, mav_handle.clone(), pwm_state).await;
+    control::pwm::register_all_pwm_subs(mav_handle.clone(), pwm_state).await;
     // profiler().await.ok();
 
     for h in telem_handles {
