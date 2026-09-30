@@ -22,14 +22,15 @@ from telemetry.foxglove_zenoh_adapter import (
     sample_timestamp,
 )
 from telemetry.serializations.coords import Coords, coords_to_location
-from telemetry.serializations.Vec3 import Vec3
+from telemetry.serializations.local_kinematics import LocalKinematics
 
 
-def vec3_to_ball(
-    v: Vec3,
+def local_kinematics_to_ball(
+    kinematics: LocalKinematics,
     sample: zenoh.Sample,
     color: Color | None = None,
 ) -> SceneUpdate:
+    position = kinematics.pos
     if color is None:
         color = Color(
             r=1.0,
@@ -40,9 +41,9 @@ def vec3_to_ball(
     sphere = SpherePrimitive(
         pose=Pose(
             position=Vector3(
-                x=v.x,
-                y=v.y,
-                z=v.z,
+                x=position.x,
+                y=position.y,
+                z=position.z,
             ),
             orientation=Quaternion(
                 x=0.0,
@@ -101,10 +102,13 @@ def main():
 
     # The MAVLink bridge emits this stream only after confirming the FC's EKF
     # origin. Preserve those local coordinates; never project or add offsets here.
-    pos_adapter = MsgPackFoxgloveAdapter(packet_type=Vec3, render=vec3_to_ball)
+    pos_adapter = MsgPackFoxgloveAdapter(
+        packet_type=LocalKinematics,
+        render=local_kinematics_to_ball,
+    )
     poshandler = MsgPackFoxgloveLogger(pos_adapter)
     pos_sub = session.declare_subscriber(
-        "**/mavlink/telemetry/pos/shared/enu", handler=poshandler.log
+        "**/mavlink/telemetry/pos/local/enu", handler=poshandler.log
     )
 
     coords_adapter = MsgPackFoxgloveAdapter(

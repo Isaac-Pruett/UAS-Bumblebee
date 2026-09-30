@@ -1,7 +1,7 @@
 use crate::{
     connection::with_mavlink_router,
     get_session,
-    packets::{coords::Coords, heartbeat::Heartbeat},
+    packets::{coords::Coords, heartbeat::Heartbeat, local_kinematics::LocalKinematics},
 };
 
 use glam::Vec3;
@@ -236,12 +236,20 @@ pub async fn declare_all() -> Vec<JoinHandle<()>> {
         });
 
         let ned_rx = router.subscribe_watch(|msg| match msg {
-            MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.x, data.y, data.z)),
+            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+                position: Vec3::new(data.x, data.y, data.z),
+                velocity: Vec3::new(data.vx, data.vy, data.vz),
+                acceleration: Vec3::new(data.ax, data.ay, data.az),
+            }),
             _ => None,
         });
 
         let enu_rx = router.subscribe_watch(|msg| match msg {
-            MavMessage::LOCAL_POSITION_NED(data) => Some(Vec3::new(data.y, data.x, -data.z)),
+            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+                position: Vec3::new(data.y, data.x, -data.z),
+                velocity: Vec3::new(data.vy, data.vx, -data.vz),
+                acceleration: Vec3::new(data.ay, data.ax, -data.az),
+            }),
             _ => None,
         });
 
