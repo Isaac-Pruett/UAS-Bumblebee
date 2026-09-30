@@ -5,28 +5,11 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
 
-    naersk.url = "github:nix-community/naersk/master";
-    rust-overlay.url = "github:oxalica/rust-overlay";
+    crane.url = "github:ipetkov/crane";
 
     simulation = {
       url = "./simulation";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    mavlink = {
-      url = "./mavlink";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-parts.follows = "flake-parts";
-      inputs.naersk.follows = "naersk";
-      inputs.rust-overlay.follows = "rust-overlay";
-    };
-
-    identity = {
-      url = "./identity";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-parts.follows = "flake-parts";
-      inputs.naersk.follows = "naersk";
-      inputs.rust-overlay.follows = "rust-overlay";
     };
 
     zenohd = {
@@ -37,14 +20,6 @@
     telemetry = {
       url = "./telemetry";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    demo_ctrl_node = {
-      url = "./demo_ctrl_node";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-parts.follows = "flake-parts";
-      inputs.naersk.follows = "naersk";
-      inputs.rust-overlay.follows = "rust-overlay";
     };
 
   };
@@ -253,18 +228,64 @@
 
           mkDroneStack = drone: mkProcessStack "execUAS_${drone.name}" (mkDroneProcesses drone);
 
-          extractBin = name: name.packages.${system}.default;
+          craneLib = inputs.crane.mkLib pkgs;
+
+          # Keep templates and other non-workspace Cargo manifests out of Crane's
+          # recursive source scan.
+          rustWorkspaceSrc = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./identity
+              ./mavlink
+              ./demo_ctrl_node
+            ];
+          };
+
+          commonRustArgs = {
+            pname = "uas-rust-workspace";
+            version = "0.1.0";
+            src = craneLib.cleanCargoSource rustWorkspaceSrc;
+            strictDeps = true;
+          };
+
+          # Build the workspace dependency graph once and reuse its artifacts for
+          # each node package.
+          rustWorkspaceDeps = craneLib.buildDepsOnly (
+            commonRustArgs
+            // {
+              cargoExtraArgs = "--workspace";
+            }
+          );
+
+          rustWorkspace = craneLib.buildPackage (
+            commonRustArgs
+            // {
+              cargoArtifacts = rustWorkspaceDeps;
+              cargoExtraArgs = "--workspace";
+            }
+          );
+
+          # Each node is a thin package around the one workspace build. Building
+          # the workspace with the same Cargo arguments as rustWorkspaceDeps
+          # keeps Cargo's feature fingerprints compatible, so Zenoh is reused.
+          mkRustNode =
+            name:
+            pkgs.runCommand name { } ''
+              mkdir -p "$out/bin"
+              ln -s ${rustWorkspace}/bin/${name} "$out/bin/${name}"
+            '';
 
         in
         {
 
-          # Expose subproject packages for composition
           packages = {
-            mavlink = extractBin inputs.mavlink;
-            identity = extractBin inputs.identity;
-            telemetry = extractBin inputs.telemetry;
-            demo_ctrl_node = extractBin inputs.demo_ctrl_node;
-            zenohd = extractBin inputs.zenohd;
+            mavlink = mkRustNode "mavlink";
+            identity = mkRustNode "identity";
+            demo_ctrl_node = mkRustNode "demo_ctrl_node";
+            telemetry = inputs.telemetry.packages.${system}.default;
+            zenohd = inputs.zenohd.packages.${system}.default;
 
             nuze = pkgs.rustPlatform.buildRustPackage rec {
               pname = "nuze";
@@ -357,6 +378,10 @@
               self'.packages.zenohd
               self'.packages.dev
               self'.packages.telemetry
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.rustPackages.clippy
               pkgs.just
               pkgs.uv
             ];

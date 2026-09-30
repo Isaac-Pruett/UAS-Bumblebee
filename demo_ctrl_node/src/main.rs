@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gilrs::{Axis, Button, Event, EventType, Gilrs};
 use serde::Serialize;
 
@@ -122,5 +124,6 @@ async fn main() {
                 eprintln!("failed to publish gamepad state on '{topic}': {err}");
             }
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
