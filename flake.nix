@@ -5,6 +5,9 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
 
+    naersk.url = "github:nix-community/naersk/master";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+
     simulation = {
       url = "./simulation";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,11 +16,17 @@
     mavlink = {
       url = "./mavlink";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.naersk.follows = "naersk";
+      inputs.rust-overlay.follows = "rust-overlay";
     };
 
     identity = {
       url = "./identity";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.naersk.follows = "naersk";
+      inputs.rust-overlay.follows = "rust-overlay";
     };
 
     zenohd = {
@@ -29,6 +38,15 @@
       url = "./telemetry";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    demo_ctrl_node = {
+      url = "./demo_ctrl_node";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.naersk.follows = "naersk";
+      inputs.rust-overlay.follows = "rust-overlay";
+    };
+
   };
 
   outputs =
@@ -192,6 +210,7 @@
               "mavlink-${drone.name}" = {
                 command = "exec ${self'.packages.mavlink}/bin/mavlink";
                 environment = environment ++ [ "MAVLINK_CONN=${drone.mavlinkConn}" ];
+                ready_log_line = "mavlink: autopilot =";
                 availability = {
                   restart = "on_failure";
                   backoff_seconds = 3;
@@ -234,18 +253,18 @@
 
           mkDroneStack = drone: mkProcessStack "execUAS_${drone.name}" (mkDroneProcesses drone);
 
+          extractBin = name: name.packages.${system}.default;
+
         in
         {
 
           # Expose subproject packages for composition
           packages = {
-            rust_demo = inputs.rust-demo-sub.packages.${system}.default;
-            python_demo = inputs.python-demo-sub.packages.${system}.default;
-            mavlink = inputs.mavlink.packages.${system}.default;
-            identity = inputs.identity.packages.${system}.default;
-            telemetry = inputs.telemetry.packages.${system}.default;
-
-            zenohd = inputs.zenohd.packages.${system}.default;
+            mavlink = extractBin inputs.mavlink;
+            identity = extractBin inputs.identity;
+            telemetry = extractBin inputs.telemetry;
+            demo_ctrl_node = extractBin inputs.demo_ctrl_node;
+            zenohd = extractBin inputs.zenohd;
 
             nuze = pkgs.rustPlatform.buildRustPackage rec {
               pname = "nuze";
@@ -302,6 +321,19 @@
                       "TELEMETRY_ZENOH_CONFIG=${telemetryConfig}"
 
                     ];
+                    availability = {
+                      restart = "on_failure";
+                      backoff_seconds = 3;
+                    };
+                    depends_on = routerDependency;
+                  };
+                  demo_ctrl_node = {
+                    command = "exec ${self'.packages.demo_ctrl_node}/bin/demo_ctrl_node";
+                    environment = [
+                      "ZENOH_CONFIG=${telemetryConfig}"
+
+                    ];
+
                     availability = {
                       restart = "on_failure";
                       backoff_seconds = 3;

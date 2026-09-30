@@ -1,0 +1,18 @@
+[package]
+name = "demo_ctrl_node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gilrs = "0.11.2"
+
+rmp-serde = "1.3.1"
+serde = "1.0.229"
+tokio = { version = "1.49.0", features = ["full"] }
+
+zenoh = {version = ">=1.7.2", features = ["shared-memory"]}
+zenoh-ext = ">=1.7.2"
+
+[[bin]]
+name = "demo_ctrl_node"
+path = "src/main.rs"
