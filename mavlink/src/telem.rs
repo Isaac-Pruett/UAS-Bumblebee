@@ -1,15 +1,15 @@
 use crate::{
-    connection::with_mavlink_router,
+    connection::{MavlinkHandle, SYSTEM_ID, with_mavlink_router},
     get_session,
     packets::{coords::Coords, heartbeat::Heartbeat, local_kinematics::LocalKinematics},
 };
 
 use glam::Vec3;
-use mavlink::dialects::common::{MavAutopilot, MavMessage, MavModeFlag};
+use mavlink::dialects::common::{COMMAND_LONG_DATA, MavAutopilot, MavCmd, MavMessage, MavModeFlag};
 use serde::Serialize;
 use std::{
     sync::{LazyLock, OnceLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::{
     sync::{mpsc, watch},
@@ -218,6 +218,35 @@ where
     })
 }
 
+/// Request PX4 stream `LOCAL_POSITION_NED_COV` (message ID 64) at 50 Hz.
+///
+/// The command is sent only after receiving a vehicle heartbeat, so it targets
+/// the discovered vehicle and its autopilot component rather than relying on a
+/// broadcast command.
+pub fn request_local_kinematics_stream(mavlink: MavlinkHandle) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let system_id = loop {
+            if let Some(&system_id) = SYSTEM_ID.get() {
+                break system_id;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+
+        let request = MavMessage::COMMAND_LONG(COMMAND_LONG_DATA {
+            target_system: system_id,
+            target_component: 1,
+            command: MavCmd::MAV_CMD_SET_MESSAGE_INTERVAL,
+            param1: 64.0,
+            param2: 20_000.0,
+            ..Default::default()
+        });
+
+        if mavlink.send(request).await.is_err() {
+            eprintln!("MAVLink task stopped before LOCAL_POSITION_NED_COV could be requested");
+        }
+    })
+}
+
 pub async fn declare_all() -> Vec<JoinHandle<()>> {
     let session = get_session();
     let start = Instant::now();
@@ -235,22 +264,30 @@ pub async fn declare_all() -> Vec<JoinHandle<()>> {
             })
         });
 
-        let ned_rx = router.subscribe_watch(|msg| match msg {
-            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+        // LOCAL_POSITION_NED_COV is the local-state message that contains
+        // position, velocity, and acceleration together.
+        let ned_rx = router.subscribe_watch(|msg| {
+            let MavMessage::LOCAL_POSITION_NED(data) = msg else {
+                return None;
+            };
+
+            Some(LocalKinematics {
                 position: Vec3::new(data.x, data.y, data.z),
                 velocity: Vec3::new(data.vx, data.vy, data.vz),
-                acceleration: Vec3::new(data.ax, data.ay, data.az),
-            }),
-            _ => None,
+                acceleration: Vec3::new(f32::NAN, f32::NAN, f32::NAN),
+            })
         });
 
-        let enu_rx = router.subscribe_watch(|msg| match msg {
-            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+        let enu_rx = router.subscribe_watch(|msg| {
+            let MavMessage::LOCAL_POSITION_NED(data) = msg else {
+                return None;
+            };
+
+            Some(LocalKinematics {
                 position: Vec3::new(data.y, data.x, -data.z),
                 velocity: Vec3::new(data.vy, data.vx, -data.vz),
-                acceleration: Vec3::new(data.ay, data.ax, -data.az),
-            }),
-            _ => None,
+                acceleration: Vec3::new(f32::NAN, f32::NAN, f32::NAN),
+            })
         });
 
         let global_rx = router.subscribe_watch(|msg| match msg {

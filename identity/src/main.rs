@@ -17,10 +17,9 @@ async fn main() {
 
     let updated_namespace = format!("{namespace}/identity");
 
-    DRONE_NAME.get_or_init(|| {
-        println!("Set drone name to: {namespace}!");
-        namespace
-    });
+    DRONE_NAME
+        .set(namespace)
+        .expect("drone name should only be initialized once");
 
     cfg.insert_json5("namespace", &format!("{updated_namespace:?}"))
         .expect("IDENTITY: failed to set session namespace!");
@@ -31,17 +30,23 @@ async fn main() {
         .declare_queryable("whoami")
         .callback(|query| {
             tokio::spawn(async move {
-                if let Some(n) = DRONE_NAME.get() {
-                    let b = n.as_bytes();
-                    if let Some(n) = rmp_serde::from_slice::<&[u8]>(b).ok() {
-                        query.reply(query.key_expr().clone(), n).await.ok();
-                    }
+                if let Some(name) = DRONE_NAME.get() {
+                    query
+                        .reply(query.key_expr().clone(), name.as_str())
+                        .await
+                        .ok();
                 }
             });
         })
         .background()
         .await
         .expect("failed to initialize whoami queryable");
+
+    println!(
+        "Set drone name to: {}!",
+        DRONE_NAME.get().expect("drone name was initialized")
+    );
+
     // Wait for subscribers to be ready
     tokio::time::sleep(Duration::from_millis(500)).await;
 

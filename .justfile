@@ -3,8 +3,9 @@ alias b := build
 alias c := clean
 alias d := develop
 alias n := new
-alias mv := rename
-alias rn := rename
+
+# alias mv := rename
+# alias rn := rename
 
 # default target, lists all targets available
 list:

@@ -59,6 +59,8 @@ async fn main() {
 
     let (mav_handle, message_handle) = setup_mavlink_task(mavconn);
 
+    let _local_kinematics_request = telem::request_local_kinematics_stream(mav_handle.clone());
+
     control::origin::declare_origin_sub(mav_handle.clone()).await;
     control::movement::declare_all(mav_handle.clone()).await;
     control::reposition::declare_goto_waypoint_sub(mav_handle.clone()).await;

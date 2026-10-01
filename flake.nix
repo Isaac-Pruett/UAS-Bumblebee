@@ -137,30 +137,31 @@
             alt = 300.0;
           };
 
-          telemetryConfig = pkgs.writeText "zenoh-telemetry.json" (
-            builtins.toJSON {
-              mode = "client";
-              connect.endpoints = [ "tcp/127.0.0.1:7447" ];
-              scouting.multicast.enabled = false;
-            }
-          );
+          nullNamespaceConfig = mkSharedConfig "";
 
           # Generate shared Zenoh config (customize as needed; could derive from template)
           mkSharedConfig =
             droneName:
-            pkgs.writeText "zenoh-${droneName}.json" (
-              builtins.toJSON {
-                mode = "client";
-                namespace = droneName;
+            let
+              filename = if droneName == "" then "null-namespace" else droneName;
+            in
+            pkgs.writeText "zenoh-${filename}.json" (
+              builtins.toJSON (
+                {
+                  mode = "client";
 
-                connect.endpoints = [ "tcp/127.0.0.1:7447" ];
-                scouting.multicast.enabled = false;
+                  connect.endpoints = [ "tcp/127.0.0.1:7447" ];
+                  scouting.multicast.enabled = false;
 
-                transport = {
-                  unicast.lowlatency = false;
-                  shared_memory.enabled = true;
-                };
-              }
+                  transport = {
+                    unicast.lowlatency = false;
+                    shared_memory.enabled = true;
+                  };
+                }
+                // pkgs.lib.optionalAttrs (droneName != "") {
+                  namespace = droneName;
+                }
+              )
             );
 
           routerCfg = pkgs.writeText "zenoh-router-cfg.json" ''
@@ -181,6 +182,15 @@
               "identity-${drone.name}" = {
                 command = "exec ${self'.packages.identity}/bin/identity";
                 inherit environment;
+                ready_log_line = "Set drone name to:";
+
+              };
+              "formations-${drone.name}" = {
+                command = "exec ${self'.packages.formations}/bin/formations";
+                environment = environment ++ [ "NULL_ZENOH_CONFIG=${nullNamespaceConfig}" ];
+                depends_on = {
+                  "identity-${drone.name}".condition = "process_log_ready";
+                };
               };
               "mavlink-${drone.name}" = {
                 command = "exec ${self'.packages.mavlink}/bin/mavlink";
@@ -227,6 +237,13 @@
             };
 
           mkDroneStack = drone: mkProcessStack "execUAS_${drone.name}" (mkDroneProcesses drone);
+
+          withDependencies =
+            dependencies: process:
+            process
+            // {
+              depends_on = (process.depends_on or { }) // dependencies;
+            };
 
           craneLib = inputs.crane.mkLib pkgs;
 
@@ -285,6 +302,7 @@
             mavlink = mkRustNode "mavlink";
             identity = mkRustNode "identity";
             demo_ctrl_node = mkRustNode "demo_ctrl_node";
+            formations = mkRustNode "formations";
             telemetry = inputs.telemetry.packages.${system}.default;
             zenohd = inputs.zenohd.packages.${system}.default;
 
@@ -316,9 +334,8 @@
                   backend = "sih";
                 };
                 droneProcesses = builtins.foldl' (acc: drone: acc // mkDroneProcesses drone) { } drones_in_sim;
-                routerDependency = {
-                  zenohd.condition = "process_healthy";
-                };
+                routerDependency.zenohd.condition = "process_healthy";
+                withRouterDependency = withDependencies routerDependency;
               in
               mkProcessStack "simulate" (
                 {
@@ -337,39 +354,24 @@
                       failure_threshold = 30;
                     };
                   };
-                  telemetry = {
+                  telemetry = withRouterDependency {
                     command = "exec ${self'.packages.telemetry}/bin/telemetry";
-                    environment = [
-                      "TELEMETRY_ZENOH_CONFIG=${telemetryConfig}"
-
-                    ];
+                    environment = [ "TELEMETRY_ZENOH_CONFIG=${nullNamespaceConfig}" ];
                     availability = {
                       restart = "on_failure";
                       backoff_seconds = 3;
                     };
-                    depends_on = routerDependency;
                   };
-                  demo_ctrl_node = {
+                  demo_ctrl_node = withRouterDependency {
                     command = "exec ${self'.packages.demo_ctrl_node}/bin/demo_ctrl_node";
-                    environment = [
-                      "ZENOH_CONFIG=${telemetryConfig}"
-
-                    ];
-
+                    environment = [ "ZENOH_CONFIG=${nullNamespaceConfig}" ];
                     availability = {
                       restart = "on_failure";
                       backoff_seconds = 3;
                     };
-                    depends_on = routerDependency;
                   };
                 }
-                // builtins.mapAttrs (
-                  _: process:
-                  process
-                  // {
-                    depends_on = routerDependency;
-                  }
-                ) droneProcesses
+                // builtins.mapAttrs (_: process: withRouterDependency process) droneProcesses
               );
 
           };
