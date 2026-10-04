@@ -1,0 +1,17 @@
+[package]
+name = "gamepad_controlled_demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+rmp-serde.workspace = true
+serde.workspace = true
+tokio.workspace = true
+zenoh.workspace = true
+zenoh-ext.workspace = true
+glam.workspace = true
+
+[[bin]]
+name = "gamepad_controlled_demo"
+path = "src/main.rs"

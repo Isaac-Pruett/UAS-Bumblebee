@@ -8,7 +8,7 @@ use mavlink::dialects::common::{
 use crate::{
     connection::MavlinkHandle,
     get_session,
-    packets::motion::{self, Movement},
+    packets::motion::{self, Movement, flu_to_frd, ned_to_enu},
     telem::{AUTOPILOT, autopilot_mode},
 };
 
@@ -46,10 +46,19 @@ pub async fn declare_movement_input_sub(
                         };
 
                         if let Some(autopilot_mode) = autopilot_mode() {
-                            if autopilot_mode.can_fly() {
-                                let _ = mavconn
+                            let priming = super::offboard::is_priming()
+                                && AUTOPILOT.get() == Some(&MAV_AUTOPILOT_PX4)
+                                && autopilot_mode.armed;
+                            if autopilot_mode.can_fly() || priming {
+                                match mavconn
                                     .send(MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet))
-                                    .await;
+                                    .await
+                                {
+                                    Ok(()) => {}
+                                    Err(err) => {
+                                        eprintln!("failed to send movement setpoint: {err}")
+                                    }
+                                }
                             }
                         }
                     }
@@ -74,16 +83,6 @@ pub async fn declare_all(mavconn: MavlinkHandle) {
             keyexpr: "control/move/ned/raw".into(),
             movement_transform: Arc::new(|m: &mut Movement| {
                 // dindu nuffin
-                motion::ned_all(m);
-            }) as MovementFn,
-            is_body_frame: false,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/ned/pos".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
             }) as MovementFn,
             is_body_frame: false,
         },
@@ -91,34 +90,7 @@ pub async fn declare_all(mavconn: MavlinkHandle) {
             keyexpr: "control/move/enu/raw".into(),
             movement_transform: Arc::new(|m: &mut Movement| {
                 // println!("MOVED: {m:?}");
-                motion::enu_all(m);
-            }) as MovementFn,
-            is_body_frame: false,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/enu/pos".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
-            }) as MovementFn,
-            is_body_frame: false,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/enu/velo".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
-            }) as MovementFn,
-            is_body_frame: false,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/ned/velo".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
+                motion::frame_swap(m, ned_to_enu);
             }) as MovementFn,
             is_body_frame: false,
         },
@@ -127,16 +99,7 @@ pub async fn declare_all(mavconn: MavlinkHandle) {
             keyexpr: "control/move/frd/raw".into(),
             movement_transform: Arc::new(|m: &mut Movement| {
                 // dindu nuffin
-                motion::ned_all(m);
-            }) as MovementFn,
-            is_body_frame: true,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/frd/pos".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
+                motion::frame_swap(m, flu_to_frd);
             }) as MovementFn,
             is_body_frame: true,
         },
@@ -144,34 +107,6 @@ pub async fn declare_all(mavconn: MavlinkHandle) {
             keyexpr: "control/move/flu/raw".into(),
             movement_transform: Arc::new(|m: &mut Movement| {
                 // println!("MOVED: {m:?}");
-                motion::enu_all(m);
-            }) as MovementFn,
-            is_body_frame: true,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/flu/pos".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_vel(m);
-                motion::nan_acc(m);
-            }) as MovementFn,
-            is_body_frame: true,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/flu/velo".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::enu_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
-            }) as MovementFn,
-            is_body_frame: true,
-        },
-        MovementSubParams {
-            keyexpr: "control/move/frd/velo".into(),
-            movement_transform: Arc::new(|m: &mut Movement| {
-                motion::ned_all(m);
-                motion::nan_pos(m);
-                motion::nan_acc(m);
             }) as MovementFn,
             is_body_frame: true,
         },

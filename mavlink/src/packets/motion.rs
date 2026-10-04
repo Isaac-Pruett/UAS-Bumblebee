@@ -1,5 +1,6 @@
 use std::f32;
 
+use glam::Vec3;
 use mavlink::dialects::common::{PositionTargetTypemask, SET_POSITION_TARGET_LOCAL_NED_DATA};
 use serde::{Deserialize, Serialize};
 
@@ -7,16 +8,9 @@ use crate::connection::SYSTEM_ID;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Movement {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-
-    pub vx: f32,
-    pub vy: f32,
-    pub vz: f32,
-    pub afx: f32,
-    pub afy: f32,
-    pub afz: f32,
+    pub pos: Vec3,
+    pub velo: Vec3,
+    pub acc: Vec3,
 
     pub force_en: bool,
 
@@ -37,15 +31,15 @@ impl Movement {
                 coordinate_frame: mavlink::dialects::common::MavFrame::MAV_FRAME_LOCAL_NED, // WILL BE OVERRIDDEN
                 type_mask: mask,
 
-                x: clean(self.x),
-                y: clean(self.y),
-                z: clean(self.z),
-                vx: clean(self.vx),
-                vy: clean(self.vy),
-                vz: clean(self.vz),
-                afx: clean(self.afx),
-                afy: clean(self.afy),
-                afz: clean(self.afz),
+                x: clean(self.pos.x),
+                y: clean(self.pos.y),
+                z: clean(self.pos.z),
+                vx: clean(self.velo.x),
+                vy: clean(self.velo.y),
+                vz: clean(self.velo.z),
+                afx: clean(self.acc.x),
+                afy: clean(self.acc.y),
+                afz: clean(self.acc.z),
                 yaw: clean(self.yaw),
                 yaw_rate: clean(self.yaw_rate),
             })
@@ -55,15 +49,15 @@ impl Movement {
     }
 
     fn flag(&self) -> u16 {
-        (bitnan(self.x) << 0)
-            | (bitnan(self.y) << 1)
-            | (bitnan(self.z) << 2)
-            | (bitnan(self.vx) << 3)
-            | (bitnan(self.vy) << 4)
-            | (bitnan(self.vz) << 5)
-            | (bitnan(self.afx) << 6)
-            | (bitnan(self.afy) << 7)
-            | (bitnan(self.afz) << 8)
+        (bitnan(self.pos.x) << 0)
+            | (bitnan(self.pos.y) << 1)
+            | (bitnan(self.pos.z) << 2)
+            | (bitnan(self.velo.x) << 3)
+            | (bitnan(self.velo.y) << 4)
+            | (bitnan(self.velo.z) << 5)
+            | (bitnan(self.acc.x) << 6)
+            | (bitnan(self.acc.y) << 7)
+            | (bitnan(self.acc.z) << 8)
             | (((self.force_en) as u16) << 9)
             | (bitnan(self.yaw) << 10)
             | (bitnan(self.yaw_rate) << 11)
@@ -82,51 +76,45 @@ fn clean(i: f32) -> f32 {
 }
 
 #[inline]
-pub fn ned_all(_: &mut Movement) {}
+pub fn ned_to_enu(v: Vec3) -> Vec3 {
+    Vec3::new(v.y, v.x, -v.z)
+}
 
 #[inline]
-pub fn enu_all(m: &mut Movement) {
-    let t = m.clone();
+pub fn flu_to_frd(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, -v.y, -v.z)
+}
 
-    m.x = t.y;
-    m.y = t.x;
-    m.z = -t.z;
-
-    m.vx = t.vy;
-    m.vy = t.vx;
-    m.vz = -t.vz;
-
-    m.afx = t.afy;
-    m.afy = t.afx;
-    m.afz = -t.afz;
+#[inline]
+pub fn frame_swap<F>(m: &mut Movement, tx: F)
+where
+    F: Fn(Vec3) -> Vec3,
+{
+    m.pos = tx(m.pos);
+    m.velo = tx(m.velo);
+    m.acc = tx(m.acc);
 }
 
 #[inline]
 pub fn nan_vel(m: &mut Movement) {
-    m.vx = f32::NAN;
-    m.vy = f32::NAN;
-    m.vz = f32::NAN;
+    m.velo = Vec3::NAN;
     m.yaw_rate = f32::NAN;
 }
 
 #[inline]
 pub fn nan_acc(m: &mut Movement) {
-    m.afx = f32::NAN;
-    m.afy = f32::NAN;
-    m.afz = f32::NAN;
+    m.acc = Vec3::NAN;
 }
 
 #[inline]
 pub fn nan_pos(m: &mut Movement) {
-    m.x = f32::NAN;
-    m.y = f32::NAN;
-    m.z = f32::NAN;
+    m.pos = Vec3::NAN;
     m.yaw = f32::NAN;
 }
 
 #[inline]
 pub fn enu_pos(m: &mut Movement) {
-    enu_all(m);
+    frame_swap(m, ned_to_enu);
     nan_vel(m);
     nan_acc(m);
 }

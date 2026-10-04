@@ -256,8 +256,9 @@
               ./Cargo.lock
               ./identity
               ./mavlink
-              ./demo_ctrl_node
+              ./gamepad
               ./formations
+              ./gamepad_controlled_demo
             ];
           };
 
@@ -301,7 +302,8 @@
           packages = {
             mavlink = mkRustNode "mavlink";
             identity = mkRustNode "identity";
-            demo_ctrl_node = mkRustNode "demo_ctrl_node";
+            gamepad = mkRustNode "gamepad";
+            gamepad_controlled_demo = mkRustNode "gamepad_controlled_demo";
             formations = mkRustNode "formations";
             telemetry = inputs.telemetry.packages.${system}.default;
             zenohd = inputs.zenohd.packages.${system}.default;
@@ -362,8 +364,16 @@
                       backoff_seconds = 3;
                     };
                   };
-                  demo_ctrl_node = withRouterDependency {
-                    command = "exec ${self'.packages.demo_ctrl_node}/bin/demo_ctrl_node";
+                  gamepad = withRouterDependency {
+                    command = "exec ${self'.packages.gamepad}/bin/gamepad";
+                    environment = [ "ZENOH_CONFIG=${nullNamespaceConfig}" ];
+                    availability = {
+                      restart = "on_failure";
+                      backoff_seconds = 3;
+                    };
+                  };
+                  gamepad_controlled_demo = withRouterDependency {
+                    command = "exec ${self'.packages.gamepad_controlled_demo}/bin/gamepad_controlled_demo";
                     environment = [ "ZENOH_CONFIG=${nullNamespaceConfig}" ];
                     availability = {
                       restart = "on_failure";

@@ -2,8 +2,8 @@
 members = [
   "identity",
   "mavlink",
-  "demo_ctrl_node",
-  "formations",
+  "gamepad",
+  "formations", "gamepad_controlled_demo",
 ]
 
 exclude = [ # this is temporary

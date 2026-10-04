@@ -183,8 +183,13 @@ pub fn setup_mavlink_task(conn: AsyncMavConn) -> (MavlinkHandle, JoinHandle<()>)
                     }
 
                     Some(msg) = send_rx.recv() => {
-                        if let Err(e) = conn.send_default(&msg).await {
-                            eprintln!("MAVLink send error: {e}");
+                        match conn.send_default(&msg).await {
+                            Ok(_) => {
+                                if let MavMessage::SET_POSITION_TARGET_LOCAL_NED(packet) = &msg {
+                                    crate::control::offboard::record_setpoint(packet);
+                                }
+                            }
+                            Err(e) => eprintln!("MAVLink send error: {e}"),
                         }
                     }
 

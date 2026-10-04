@@ -23,6 +23,7 @@ from telemetry.foxglove_zenoh_adapter import (
 )
 from telemetry.serializations.coords import Coords, coords_to_location
 from telemetry.serializations.local_kinematics import LocalKinematics
+from telemetry.serializations.Vec3 import Vec3
 
 
 def local_kinematics_to_ball(
@@ -76,6 +77,27 @@ def local_kinematics_to_ball(
     )
 
 
+def formation_center_to_ball(center: Vec3, sample: zenoh.Sample) -> SceneUpdate:
+    sphere = SpherePrimitive(
+        pose=Pose(
+            position=Vector3(x=center.x, y=center.y, z=center.z),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        size=Vector3(x=0.25, y=0.25, z=0.25),
+        color=Color(r=0.0, g=0.0, b=1.0, a=0.8),
+    )
+
+    entity = SceneEntity(
+        timestamp=sample_timestamp(sample),
+        frame_id="enu",
+        id="formation_center",
+        lifetime=Duration(sec=2, nsec=0),
+        spheres=[sphere],
+    )
+
+    return SceneUpdate(entities=[entity], deletions=[])
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
@@ -109,6 +131,15 @@ def main():
     poshandler = MsgPackFoxgloveLogger(pos_adapter)
     pos_sub = session.declare_subscriber(
         "**/mavlink/telemetry/state/local/enu", handler=poshandler.log
+    )
+
+    center_adapter = MsgPackFoxgloveAdapter(
+        packet_type=Vec3,
+        render=formation_center_to_ball,
+    )
+    center_handler = MsgPackFoxgloveLogger(center_adapter)
+    center_sub = session.declare_subscriber(
+        "formations/center", handler=center_handler.log
     )
 
     coords_adapter = MsgPackFoxgloveAdapter(

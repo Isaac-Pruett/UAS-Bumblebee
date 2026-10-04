@@ -52,17 +52,23 @@ async fn main() {
 
     let telem_handles = telem::declare_all().await;
     let pwm_state = control::pwm::register_pwm_watchers().await;
+    let arm_ack_channel = connection::MavlinkAckChannel::new(
+        mavlink::dialects::common::MavCmd::MAV_CMD_COMPONENT_ARM_DISARM,
+    );
     let launch_ack_channel =
         connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_TAKEOFF);
     let land_ack_channel =
         connection::MavlinkAckChannel::new(mavlink::dialects::common::MavCmd::MAV_CMD_NAV_LAND);
 
+    let offboard_ack = control::offboard::register_ack_watcher();
     let (mav_handle, message_handle) = setup_mavlink_task(mavconn);
 
     let _local_kinematics_request = telem::request_local_kinematics_stream(mav_handle.clone());
 
-    control::origin::declare_origin_sub(mav_handle.clone()).await;
+    control::origin::declare_origin_queryable(mav_handle.clone()).await;
+    control::arm::register_arm(&mav_handle, arm_ack_channel).await;
     control::movement::declare_all(mav_handle.clone()).await;
+    control::offboard::register(&mav_handle, offboard_ack).await;
     control::reposition::declare_goto_waypoint_sub(mav_handle.clone()).await;
 
     control::takeoff::register_launch_land(

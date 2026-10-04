@@ -106,6 +106,12 @@ fn update_autopilot_state(autopilot: MavAutopilot, base_mode: MavModeFlag, custo
         mode: decode_flight_mode(autopilot, base_mode, custom_mode),
     };
 
+    if autopilot_mode() != Some(state) {
+        println!(
+            "mavlink: flight state armed={} mode={:?} custom_mode={custom_mode:#010x}",
+            state.armed, state.mode,
+        );
+    }
     let _ = AUTOPILOT_MODE.0.send(Some(state));
 }
 
@@ -266,28 +272,32 @@ pub async fn declare_all() -> Vec<JoinHandle<()>> {
 
         // LOCAL_POSITION_NED_COV is the local-state message that contains
         // position, velocity, and acceleration together.
-        let ned_rx = router.subscribe_watch(|msg| {
-            let MavMessage::LOCAL_POSITION_NED(data) = msg else {
-                return None;
-            };
-
-            Some(LocalKinematics {
+        let ned_rx = router.subscribe_watch(|msg| match msg {
+            MavMessage::LOCAL_POSITION_NED(data) => Some(LocalKinematics {
                 position: Vec3::new(data.x, data.y, data.z),
                 velocity: Vec3::new(data.vx, data.vy, data.vz),
                 acceleration: Vec3::new(f32::NAN, f32::NAN, f32::NAN),
-            })
+            }),
+            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+                position: Vec3::new(data.x, data.y, data.z),
+                velocity: Vec3::new(data.vx, data.vy, data.vz),
+                acceleration: Vec3::new(data.ax, data.ay, data.az),
+            }),
+            _ => None,
         });
 
-        let enu_rx = router.subscribe_watch(|msg| {
-            let MavMessage::LOCAL_POSITION_NED(data) = msg else {
-                return None;
-            };
-
-            Some(LocalKinematics {
+        let enu_rx = router.subscribe_watch(|msg| match msg {
+            MavMessage::LOCAL_POSITION_NED(data) => Some(LocalKinematics {
                 position: Vec3::new(data.y, data.x, -data.z),
                 velocity: Vec3::new(data.vy, data.vx, -data.vz),
                 acceleration: Vec3::new(f32::NAN, f32::NAN, f32::NAN),
-            })
+            }),
+            MavMessage::LOCAL_POSITION_NED_COV(data) => Some(LocalKinematics {
+                position: Vec3::new(data.y, data.x, -data.z),
+                velocity: Vec3::new(data.vy, data.vx, -data.vz),
+                acceleration: Vec3::new(data.ay, data.ax, -data.az),
+            }),
+            _ => None,
         });
 
         let global_rx = router.subscribe_watch(|msg| match msg {

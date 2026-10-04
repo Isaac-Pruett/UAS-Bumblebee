@@ -970,18 +970,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo_ctrl_node"
-version = "0.1.0"
-dependencies = [
- "gilrs",
- "rmp-serde",
- "serde",
- "tokio",
- "zenoh",
- "zenoh-ext",
-]
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1459,6 +1447,30 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gamepad"
+version = "0.1.0"
+dependencies = [
+ "gilrs",
+ "rmp-serde",
+ "serde",
+ "tokio",
+ "zenoh",
+ "zenoh-ext",
+]
+
+[[package]]
+name = "gamepad_controlled_demo"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "rmp-serde",
+ "serde",
+ "tokio",
+ "zenoh",
+ "zenoh-ext",
 ]
 
 [[package]]
