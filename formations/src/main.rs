@@ -22,8 +22,12 @@ struct FormationState {
 
 static MAX_ACCEL_M_S2: OnceLock<f32> = OnceLock::new();
 
-// Do not command the origin until a formation coordinator has supplied a center.
-static CENTER: LazyLock<Mutex<Option<Vec3>>> = LazyLock::new(|| Mutex::new(None));
+// Do not command the origin until a formation coordinator has supplied our target.
+static TARGET: LazyLock<Mutex<Option<Vec3>>> = LazyLock::new(|| Mutex::new(None));
+
+fn target_center_topic(own_name: &str) -> String {
+    format!("{own_name}/formations/target")
+}
 
 #[tokio::main]
 async fn main() -> zenoh::Result<()> {
@@ -94,57 +98,64 @@ async fn main() -> zenoh::Result<()> {
         .declare_publisher(format!("{}/mavlink/control/move/enu/raw", state.own_name))
         .await?;
 
+    // Shared formations/target is a telemetry reference, not a control target.
     let _center_subscription = telemetry_session
-        .declare_subscriber("formations/center")
+        .declare_subscriber(target_center_topic(&state.own_name))
         .callback(|sample| {
-            let mut ctr_lck = CENTER
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-            if let Ok(center) = rmp_serde::decode::from_slice::<Vec3>(&sample.payload().to_bytes())
-            {
-                *ctr_lck = Some(center);
+            match rmp_serde::decode::from_slice::<Vec3>(&sample.payload().to_bytes()) {
+                Ok(center) if center.is_finite() => {
+                    *TARGET
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(center);
+                }
+                Ok(center) => eprintln!(
+                    "Ignoring nonfinite formation target on {}: {center:?}",
+                    sample.key_expr()
+                ),
+                Err(error) => eprintln!(
+                    "Ignoring malformed formation target on {}: {error}",
+                    sample.key_expr()
+                ),
             }
         })
         .await?;
 
     let mainloop_state = Arc::clone(&state);
     let _mainloop = tokio::spawn(async move {
+        let mut all_pos = Vec::new();
         loop {
-            let (my_state_copy, others_copy) = {
-                (
-                    mainloop_state
-                        .own_boid
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .clone(),
-                    mainloop_state
-                        .others
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .clone(),
-                )
-            };
+            let my_state_copy = mainloop_state
+                .own_boid
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
 
-            let mut all_boids = others_copy.into_values().collect::<Vec<_>>();
-            all_boids.push(my_state_copy.clone());
+            all_pos.clear();
+            {
+                let others = mainloop_state
+                    .others
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                all_pos.reserve(others.len() + 1);
+                all_pos.extend(others.values().map(|boid| boid.pos));
+            }
+            // Keep our position last so repulsion can exclude it by index.
+            all_pos.push(my_state_copy.pos);
 
-            let all_pos = all_boids.iter().map(|b| b.pos).collect::<Vec<_>>();
-
-            let center = *CENTER
+            let target = *TARGET
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-            let m = if let Some(center) = center {
-                let repulsion = repulsion_fn(all_boids.len() - 1, &all_pos, 2.0, 12.0);
+            let m = if let Some(target) = target {
+                let repulsion = repulsion_fn(all_pos.len() - 1, &all_pos, 2.0, 6.0);
                 let cohesion = cohesion_fn(
                     my_state_copy.pos,
                     my_state_copy.velo,
-                    center.into(),
-                    2.0,
-                    2.0,
+                    target.into(),
+                    3.0,
+                    1.0,
                 );
-                let max_accel = MAX_ACCEL_M_S2.get().copied().unwrap_or(1.0);
+                let max_accel = MAX_ACCEL_M_S2.get().copied().unwrap_or(2.0);
                 let acc = (repulsion + cohesion).clamp_length_max(max_accel);
 
                 Movement {
@@ -183,4 +194,17 @@ async fn main() -> zenoh::Result<()> {
     drop(all_states_subs);
     telemetry_session.close().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::target_center_topic;
+
+    #[test]
+    fn target_center_topic_is_per_drone() {
+        let topic = target_center_topic("drone1");
+        assert_eq!(topic, "drone1/formations/target");
+        assert_ne!(topic, "formations/target");
+        assert_ne!(topic, target_center_topic("drone2"));
+    }
 }

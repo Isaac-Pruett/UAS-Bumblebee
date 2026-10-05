@@ -139,7 +139,7 @@ def main():
     )
     center_handler = MsgPackFoxgloveLogger(center_adapter)
     center_sub = session.declare_subscriber(
-        "formations/center", handler=center_handler.log
+        "formations/target", handler=center_handler.log
     )
 
     coords_adapter = MsgPackFoxgloveAdapter(

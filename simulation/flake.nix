@@ -212,6 +212,8 @@
 
                   ${vehicleLaunchers}
 
+                  echo "Started all instances!"
+
                   wait
           '';
         };

@@ -14,7 +14,7 @@ class FormationCenterTests(unittest.TestCase):
         payload = bytes.fromhex("93 ca3f800000 ca40000000 ca40a00000")
         sample = SimpleNamespace(
             payload=zenoh.ZBytes(payload),
-            key_expr=zenoh.KeyExpr("formations/center"),
+            key_expr=zenoh.KeyExpr("formations/target"),
             kind=zenoh.SampleKind.PUT,
             timestamp=None,
         )
@@ -28,7 +28,7 @@ class FormationCenterTests(unittest.TestCase):
         session.declare_subscriber.side_effect = subscribe
 
         def receive_then_stop(_):
-            callbacks["formations/center"](sample)
+            callbacks["formations/target"](sample)
             callbacks["**"](sample)
             raise KeyboardInterrupt
 
@@ -48,7 +48,7 @@ class FormationCenterTests(unittest.TestCase):
         scenes = [
             call.args
             for call in log.call_args_list
-            if call.args[0] == "formations/center"
+            if call.args[0] == "formations/target"
         ]
         self.assertEqual(len(scenes), 1)
         update = scenes[0][1]
@@ -63,7 +63,7 @@ class FormationCenterTests(unittest.TestCase):
         color.assert_called_once_with(r=0.0, g=0.0, b=1.0, a=0.8)
         self.assertTrue(update.encode())
         self.assertTrue(
-            any(call.args[0] == "/raw/formations/center" for call in log.call_args_list)
+            any(call.args[0] == "/raw/formations/target" for call in log.call_args_list)
         )
         session.close.assert_called_once()
         server.return_value.stop.assert_called_once()

@@ -118,6 +118,7 @@ async fn main() {
                 eprintln!("failed to publish gamepad state on '{topic}': {err}");
             }
         }
+        // println!("GP: {:?}", gamepad_state);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }

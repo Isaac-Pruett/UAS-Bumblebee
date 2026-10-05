@@ -1,4 +1,7 @@
+mod orbit;
+
 use glam::Vec3;
+use orbit::Orbit;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::{
@@ -217,6 +220,8 @@ async fn main() {
         }
     }
 
+    println!("Demo is live!");
+
     tokio::task::spawn(async move {
         let mut prev_gp = GamepadState::default();
 
@@ -225,12 +230,25 @@ async fn main() {
         let mut ctr = Vec3::ZERO;
         let mut center_initialized = false;
         let mut last_center_publish: Option<Instant> = None;
+        let mut orbit = Orbit::default();
+        let mut rotating = false;
+        let mut last_tick = Instant::now();
+        let mut last_target_publish: Option<Instant> = None;
 
-        const SPEED: f32 = 0.050;
+        const CENTER_SPEED_M_S: f32 = 5.0;
+        const TARGET_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
         const CENTER_REPLAY_INTERVAL: Duration = Duration::from_secs(1);
+
+        let mut armed = false;
+        let mut launched = false;
 
         'mainloop: loop {
             tokio::time::sleep(Duration::from_millis(10)).await; // busy wait after drop
+
+            let now = Instant::now();
+            // Avoid a large control jump after a scheduler or network stall.
+            let dt_s = now.duration_since(last_tick).as_secs_f32().min(0.1);
+            last_tick = now;
 
             let gamepad_cpy = match GP_STATE.lock() {
                 Err(_) => continue 'mainloop,
@@ -239,15 +257,17 @@ async fn main() {
 
             // The mutex guard was dropped above; this is an owned state snapshot.
 
-            if gamepad_cpy.a && !prev_gp.a {
+            if rising_edge(gamepad_cpy.a, prev_gp.a) {
                 for &drone in DRONES {
                     let session = session.clone();
                     tokio::spawn(async move { request_arm(session, drone).await });
                 }
+                armed = true;
             }
 
-            if rising_edge(gamepad_cpy.b, prev_gp.b) {
+            if rising_edge(gamepad_cpy.b, prev_gp.b) && launched {
                 if center_initialized {
+                    rotating = true;
                     for &drone in DRONES {
                         let session = session.clone();
                         tokio::spawn(async move { request_offboard(session, drone).await });
@@ -257,7 +277,7 @@ async fn main() {
                 }
             }
 
-            if gamepad_cpy.left_bumper && !prev_gp.left_bumper {
+            if rising_edge(gamepad_cpy.left_bumper, prev_gp.left_bumper) && armed {
                 println!("Launching!");
                 let comm = LaunchCommand {
                     height_m: 305.0,
@@ -272,21 +292,38 @@ async fn main() {
                         for &drone in DRONES {
                             let session = session.clone();
                             let payload = payload.clone();
-                            tokio::spawn(
-                                async move { request_launch(session, drone, payload).await },
-                            );
+                            tokio::spawn(async move {
+                                request_launch(session, drone, payload).await;
+                            });
                         }
+                        launched = true;
                     }
                     Err(err) => eprintln!("failed to encode launch command: {err}"),
                 };
             }
 
-            if gamepad_cpy.left_stick_x != 0.0 && gamepad_cpy.left_stick_y != 0.0 {
-                ctr.x += SPEED * gamepad_cpy.left_stick_x;
-                ctr.y += SPEED * gamepad_cpy.left_stick_y;
-            }
-            if gamepad_cpy.right_stick_x != 0.0 && gamepad_cpy.right_stick_y != 0.0 {
-                ctr.z += SPEED * gamepad_cpy.right_stick_y;
+            ctr.x += CENTER_SPEED_M_S * dt_s * gamepad_cpy.left_stick_x;
+            ctr.y += CENTER_SPEED_M_S * dt_s * gamepad_cpy.left_stick_y;
+            orbit.update(gamepad_cpy.right_trigger, dt_s, rotating);
+
+            if center_initialized
+                && last_target_publish
+                    .is_none_or(|last| now.duration_since(last) >= TARGET_PUBLISH_INTERVAL)
+            {
+                // Stable slots and one shared phase keep the orbit synchronized,
+                // independent of discovery order or formation-node startup time.
+                for (index, drone) in DRONES.iter().enumerate() {
+                    let target = orbit.target(ctr, index, DRONES.len());
+                    let payload =
+                        rmp_serde::to_vec(&target).expect("failed to encode orbit target");
+                    if let Err(err) = session
+                        .put(format!("{drone}/formations/target"), payload)
+                        .await
+                    {
+                        eprintln!("failed to publish orbit target for {drone}: {err}");
+                    }
+                }
+                last_target_publish = Some(now);
             }
 
             let should_publish_center = center_initialized
@@ -296,7 +333,7 @@ async fn main() {
                     }));
             if should_publish_center {
                 match rmp_serde::encode::to_vec(&ctr) {
-                    Ok(payload) => match session.put("formations/center", payload).await {
+                    Ok(payload) => match session.put("formations/target", payload).await {
                         Ok(()) => last_center_publish = Some(Instant::now()),
                         Err(err) => eprintln!("failed to publish formation center: {err}"),
                     },

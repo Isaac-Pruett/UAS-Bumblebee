@@ -343,6 +343,7 @@
                 {
                   simulator = {
                     command = "exec ${simSwarm}/bin/simSwarm";
+                    ready_log_line = "Started all instances!";
                     availability.restart = "exit_on_failure";
                   };
                   zenohd = {
@@ -373,6 +374,16 @@
                     };
                   };
                   gamepad_controlled_demo = withRouterDependency {
+                    depends_on =
+                      builtins.listToAttrs (
+                        map (drone: {
+                          name = "mavlink-${drone.name}";
+                          value.condition = "process_log_ready";
+                        }) drones_in_sim
+                      )
+                      // {
+                        gamepad.condition = "process_started";
+                      };
                     command = "exec ${self'.packages.gamepad_controlled_demo}/bin/gamepad_controlled_demo";
                     environment = [ "ZENOH_CONFIG=${nullNamespaceConfig}" ];
                     availability = {
@@ -381,7 +392,14 @@
                     };
                   };
                 }
-                // builtins.mapAttrs (_: process: withRouterDependency process) droneProcesses
+                // builtins.mapAttrs (
+                  name: process:
+                  withRouterDependency (
+                    withDependencies (pkgs.lib.optionalAttrs (pkgs.lib.hasPrefix "mavlink-" name) {
+                      simulator.condition = "process_log_ready";
+                    }) process
+                  )
+                ) droneProcesses
               );
 
           };
